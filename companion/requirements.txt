@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+websockets
+onnxruntime-directml
+opencv-python
+numpy
+python-multipart
+onnx
+numexpr
+h5py
+protobuf

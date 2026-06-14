@@ -1,0 +1,141 @@
+/* ============================================================================
+   DiipMynd — Global Styles
+   Dark theme with glassmorphism, gradient accents, and micro-animations.
+   ============================================================================ */
+
+@import "tailwindcss";
+
+/* ── CSS Custom Properties (Design Tokens) ──────────────────────────────── */
+:root {
+  --bg-primary: #08090d;
+  --bg-surface: #0f1117;
+  --accent-violet: #8b5cf6;
+  --accent-cyan: #06b6d4;
+  --accent-fuchsia: #d946ef;
+  --glow-violet: rgba(139, 92, 246, 0.15);
+  --glow-cyan: rgba(6, 182, 212, 0.1);
+}
+
+/* ── Base ────────────────────────────────────────────────────────────────── */
+html {
+  color-scheme: dark;
+}
+
+body {
+  background: var(--bg-primary);
+  color: #e2e8f0;
+  font-family: "Inter", system-ui, -apple-system, sans-serif;
+  min-height: 100dvh;
+  overflow-x: hidden;
+}
+
+/* Ambient background gradient */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 80% 60% at 20% 10%, var(--glow-violet), transparent),
+    radial-gradient(ellipse 60% 50% at 80% 90%, var(--glow-cyan), transparent);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ── Animation Utilities ────────────────────────────────────────────────── */
+@keyframes pulse-ring {
+  0% {
+    transform: scale(0.8);
+    opacity: 0.6;
+  }
+  70% {
+    transform: scale(1.3);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1.3);
+    opacity: 0;
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+.animate-shimmer {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.04) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 2s ease-in-out infinite;
+}
+
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+/* Staggered ping for loading rings */
+.animation-delay-200 {
+  animation-delay: 200ms;
+}
+
+.animation-delay-400 {
+  animation-delay: 400ms;
+}
+
+/* ── Glassmorphism ──────────────────────────────────────────────────────── */
+.glass {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.glass-strong {
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* ── Scrollbar ──────────────────────────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* ── Video mirror (for local preview) ───────────────────────────────────── */
+.mirror {
+  transform: scaleX(-1);
+}
+
+/* ── Selection ──────────────────────────────────────────────────────────── */
+::selection {
+  background: var(--accent-violet);
+  color: white;
+}
