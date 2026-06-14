@@ -863,9 +863,20 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
               {useLocalMode ? "🚀 Local DiipMynd ON" : "☁️ Use Local DiipMynd"}
             </button>
           ) : (
-            <span className="text-[9px] text-white/20 font-semibold tracking-wider uppercase border border-white/5 rounded-xl px-2.5 py-1">
-              ☁️ Cloud Only (No Local DiipMynd)
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-[9px] text-white/20 font-semibold tracking-wider uppercase border border-white/5 rounded-xl px-2.5 py-1">
+                ☁️ Cloud Only (No Local DiipMynd)
+              </span>
+              <a
+                href="https://github.com/willstanelson/DiipMynd/releases/latest"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-3 py-1.5 rounded-xl text-[10px] font-bold tracking-wider uppercase bg-violet-500/10 text-violet-400 border border-violet-500/30 hover:bg-violet-500/25 transition-all cursor-pointer"
+                title="Download DiipMynd local GPU engine installer"
+              >
+                📥 Download Desktop App
+              </a>
+            </div>
           )}
           <ConnectionStatus state={connectionState} retryCount={retryCount} />
         </div>
