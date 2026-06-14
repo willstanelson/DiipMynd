@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { supabase, supabaseAdmin } from "@/lib/supabase";
 import { setSessionCookie } from "@/lib/auth";
 
 export async function POST(request: Request) {
@@ -34,7 +34,7 @@ export async function POST(request: Request) {
     // Provision admin role if email matches willstanelson@gmail.com
     const isAdmin = trimmedEmail === "willstanelson@gmail.com";
     if (isAdmin) {
-      const { error: profileUpdateError } = await supabase
+      const { error: profileUpdateError } = await supabaseAdmin
         .from("profiles")
         .update({ is_admin: true })
         .eq("id", data.user.id);

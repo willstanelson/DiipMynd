@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
-import { supabase } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabase";
 
 export async function POST(request: Request) {
   try {
@@ -17,7 +17,7 @@ export async function POST(request: Request) {
     }
 
     // Limit active pending requests to prevent abuse/spam
-    const { data: pendingRequests, error: selectError } = await supabase
+    const { data: pendingRequests, error: selectError } = await supabaseAdmin
       .from("credit_requests")
       .select("id")
       .eq("user_id", currentUser.id)
@@ -35,7 +35,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const { error: insertError } = await supabase
+    const { error: insertError } = await supabaseAdmin
       .from("credit_requests")
       .insert({
         user_id: currentUser.id,

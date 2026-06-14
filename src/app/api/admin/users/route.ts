@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
-import { supabase } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabase";
 
 /**
  * GET /api/admin/users
@@ -15,7 +15,7 @@ export async function GET() {
     }
 
     // Fetch all profiles from Supabase
-    const { data: profiles, error } = await supabase
+    const { data: profiles, error } = await supabaseAdmin
       .from("profiles")
       .select("id, email, credits, is_admin, created_at")
       .order("created_at", { ascending: false });
@@ -63,7 +63,7 @@ export async function POST(request: Request) {
     }
 
     // Fetch user's current profile
-    const { data: profile, error: selectError } = await supabase
+    const { data: profile, error: selectError } = await supabaseAdmin
       .from("profiles")
       .select("credits, is_admin, email, created_at")
       .eq("id", userId)
@@ -77,7 +77,7 @@ export async function POST(request: Request) {
     const newCredits = Math.max(0, profile.credits + amount);
 
     // Update credits in Supabase
-    const { error: updateError } = await supabase
+    const { error: updateError } = await supabaseAdmin
       .from("profiles")
       .update({ credits: newCredits })
       .eq("id", userId);

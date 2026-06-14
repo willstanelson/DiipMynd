@@ -1,5 +1,5 @@
 import { cookies } from "next/headers";
-import { supabase } from "./supabase";
+import { supabase, supabaseAdmin } from "./supabase";
 
 export interface SafeUser {
   id: string;
@@ -28,7 +28,7 @@ export async function getCurrentUser(): Promise<SafeUser | null> {
     }
 
     // Fetch profile details (credits, isAdmin) from the profiles table
-    const { data: profile, error: profileError } = await supabase
+    const { data: profile, error: profileError } = await supabaseAdmin
       .from("profiles")
       .select("credits, is_admin, created_at")
       .eq("id", user.id)

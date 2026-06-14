@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
-import { supabase } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabase";
 
 export async function POST() {
   try {
@@ -11,7 +11,7 @@ export async function POST() {
     }
 
     // Fetch profile details from Supabase
-    const { data: profile, error: selectError } = await supabase
+    const { data: profile, error: selectError } = await supabaseAdmin
       .from("profiles")
       .select("credits, is_admin")
       .eq("id", currentUser.id)
@@ -44,7 +44,7 @@ export async function POST() {
     const newCredits = Math.max(0, profile.credits - consumptionRate);
 
     // Save changes to Supabase
-    const { error: updateError } = await supabase
+    const { error: updateError } = await supabaseAdmin
       .from("profiles")
       .update({ credits: newCredits })
       .eq("id", currentUser.id);

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
-import { supabase } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabase";
 
 /**
  * GET /api/admin/requests
@@ -14,7 +14,7 @@ export async function GET() {
     }
 
     // Fetch all pending requests from Supabase
-    const { data: requests, error } = await supabase
+    const { data: requests, error } = await supabaseAdmin
       .from("credit_requests")
       .select("id, user_id, email, package_id, amount, status, payment_method, tx_hash, created_at")
       .eq("status", "pending")
@@ -66,7 +66,7 @@ export async function POST(request: Request) {
     }
 
     // 1. Fetch request details
-    const { data: req, error: fetchReqError } = await supabase
+    const { data: req, error: fetchReqError } = await supabaseAdmin
       .from("credit_requests")
       .select("id, user_id, amount, status")
       .eq("id", requestId)
@@ -82,7 +82,7 @@ export async function POST(request: Request) {
     }
 
     // 2. Fetch target user's current profile credits
-    const { data: targetProfile, error: fetchProfileError } = await supabase
+    const { data: targetProfile, error: fetchProfileError } = await supabaseAdmin
       .from("profiles")
       .select("credits")
       .eq("id", req.user_id)
@@ -95,7 +95,7 @@ export async function POST(request: Request) {
 
     // 3. Fund user account
     const newCredits = targetProfile.credits + req.amount;
-    const { error: profileUpdateError } = await supabase
+    const { error: profileUpdateError } = await supabaseAdmin
       .from("profiles")
       .update({ credits: newCredits })
       .eq("id", req.user_id);
@@ -106,7 +106,7 @@ export async function POST(request: Request) {
     }
 
     // 4. Mark request as completed
-    const { error: reqUpdateError } = await supabase
+    const { error: reqUpdateError } = await supabaseAdmin
       .from("credit_requests")
       .update({ status: "completed" })
       .eq("id", requestId);
