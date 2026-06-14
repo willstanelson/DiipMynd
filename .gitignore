@@ -46,3 +46,9 @@ companion/__pycache__/
 **/__pycache__/
 *.pyc
 
+# PyInstaller build outputs
+companion/dist/
+companion/build/
+*.spec
+
+
