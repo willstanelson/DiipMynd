@@ -52,7 +52,7 @@ export async function POST(request: Request) {
       const safeUser = {
         id: data.user.id,
         email: data.user.email!,
-        credits: 0,
+        credits: 100,
         isAdmin,
         createdAt: data.user.created_at,
       };
@@ -67,7 +67,7 @@ export async function POST(request: Request) {
       user: {
         id: data.user.id,
         email: data.user.email!,
-        credits: 0,
+        credits: 100,
         isAdmin,
         createdAt: data.user.created_at,
       }
