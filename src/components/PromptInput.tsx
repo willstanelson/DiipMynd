@@ -77,19 +77,18 @@ export default function PromptInput({ onPromptChange, disabled = false }: Prompt
           placeholder="Describe a transformation… e.g. &quot;turn me into a superhero&quot;"
           className="
             w-full px-4 py-3 rounded-xl
-            bg-white/5 border border-white/10
-            text-white placeholder-white/30
+            bg-slate-50 border border-slate-200
+            text-slate-900 placeholder-slate-400
             text-sm font-medium tracking-wide
             outline-none
             transition-all duration-300
-            focus:border-violet-500/60 focus:ring-2 focus:ring-violet-500/20
-            hover:border-white/20
+            focus:border-indigo-550 focus:border-indigo-650 focus:border-indigo-600 focus:ring-2 focus:ring-indigo-600/15
+            hover:border-slate-300
             disabled:opacity-40 disabled:cursor-not-allowed
-            backdrop-blur-sm
           "
         />
-        {/* Gradient accent line at the bottom */}
-        <div className="absolute bottom-0 left-4 right-4 h-px bg-gradient-to-r from-transparent via-violet-500/40 to-transparent opacity-0 group-focus-within:opacity-100 transition-opacity duration-500" />
+        {/* Accent line at the bottom */}
+        <div className="absolute bottom-0 left-4 right-4 h-px bg-gradient-to-r from-transparent via-indigo-600/30 to-transparent opacity-0 group-focus-within:opacity-100 transition-opacity duration-500" />
       </div>
 
       {/* ── Preset Chips ──────────────────────────────────────────────── */}
@@ -104,10 +103,11 @@ export default function PromptInput({ onPromptChange, disabled = false }: Prompt
               text-xs font-medium tracking-wide
               border transition-all duration-200
               disabled:opacity-30 disabled:cursor-not-allowed
+              cursor-pointer
               ${
                 activePreset === preset.id
-                  ? "bg-violet-500/20 border-violet-500/50 text-violet-300 shadow-lg shadow-violet-500/10"
-                  : "bg-white/5 border-white/10 text-white/60 hover:bg-white/10 hover:border-white/20 hover:text-white/80"
+                  ? "bg-indigo-50 border-indigo-300 text-indigo-755 text-indigo-700 shadow-sm"
+                  : "bg-white border-slate-200 text-slate-655 text-slate-600 hover:bg-slate-50 hover:border-slate-300 hover:text-slate-800"
               }
             `}
           >

@@ -59,10 +59,10 @@ export default function Home() {
 
   if (loading) {
     return (
-      <main className="relative z-10 flex min-h-dvh flex-col items-center justify-center p-6 bg-slate-950">
+      <main className="relative z-10 flex min-h-dvh flex-col items-center justify-center p-6 bg-slate-50">
         <div className="flex flex-col items-center gap-4">
-          <div className="w-10 h-10 rounded-full border-2 border-violet-500/20 border-t-violet-400 animate-spin" />
-          <p className="text-xs text-white/40 tracking-wider uppercase font-semibold">
+          <div className="w-10 h-10 rounded-full border-2 border-indigo-600/20 border-t-indigo-600 animate-spin" />
+          <p className="text-xs text-slate-500 tracking-wider uppercase font-semibold">
             Connecting to DiipMynd...
           </p>
         </div>
@@ -84,7 +84,7 @@ export default function Home() {
 
       {/* Footer tagline */}
       <footer className="mt-8 text-center">
-        <p className="text-xs text-white/20 tracking-widest uppercase">
+        <p className="text-xs text-slate-400 tracking-widest uppercase">
           Powered by Decart + Fal.ai · Smart Router · WebRTC · Next.js
         </p>
       </footer>

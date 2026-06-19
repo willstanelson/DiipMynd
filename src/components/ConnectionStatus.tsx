@@ -28,7 +28,7 @@ export default function ConnectionStatus({ state, retryCount }: ConnectionStatus
   const config = STATE_CONFIG[state];
 
   return (
-    <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/5 backdrop-blur-sm border border-white/10">
+    <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-50 border border-slate-200 shadow-sm">
       {/* Animated dot */}
       <span className="relative flex h-2.5 w-2.5">
         {config.pulse && (
@@ -42,10 +42,10 @@ export default function ConnectionStatus({ state, retryCount }: ConnectionStatus
       </span>
 
       {/* Label */}
-      <span className="text-xs font-medium text-white/80 tracking-wide">
+      <span className="text-xs font-semibold text-slate-655 text-slate-700 tracking-wide">
         {config.label}
         {state === "reconnecting" && retryCount !== undefined && (
-          <span className="text-white/50 ml-1">(attempt {retryCount})</span>
+          <span className="text-slate-400 ml-1">(attempt {retryCount})</span>
         )}
       </span>
     </div>
