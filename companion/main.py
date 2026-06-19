@@ -33,8 +33,8 @@ app = FastAPI(title="DiipMynd Local GPU Engine")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -75,8 +75,11 @@ def load_models():
     if best_device.get_execution_provider() == 'DmlExecutionProvider':
         print("[DiipMynd] Benchmarking DirectML device performance...")
         dummy_img = np.zeros((512, 512, 3), dtype=np.uint8)
+        # Warmup pass (compiles DirectML shaders/pipelines)
+        _ = face_detector.extract(dummy_img, threshold=0.25, fixed_window=256)[0]
+        
+        # Benchmark pass (measures actual execution latency)
         t0 = time.perf_counter()
-        # YoloV5Face extract
         _ = face_detector.extract(dummy_img, threshold=0.25, fixed_window=256)[0]
         t_duration = time.perf_counter() - t0
         print(f"[DiipMynd] DirectML detection latency: {t_duration*1000:.1f}ms")

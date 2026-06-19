@@ -1,10 +1,10 @@
 // ============================================================================
-// DiipMynd — Backend: Secure Token Generation
+// DiipMynd — Backend: Secure Decart Token Generation
 // POST /api/decart-auth
 //
 // This route mints a short-lived Decart client token so the raw API key
 // never leaves the server. The frontend uses this ephemeral token to
-// initialize its WebRTC session.
+// initialize its WebRTC session via the Decart SDK.
 // ============================================================================
 
 import { NextResponse } from "next/server";
@@ -14,7 +14,7 @@ import { getCurrentUser } from "@/lib/auth";
 /**
  * POST /api/decart-auth
  *
- * 1. Authenticates request and checks credit balance.
+ * 1. Authenticates request via session cookie.
  * 2. Reads DECART_API_KEY from the server environment.
  * 3. Calls client.tokens.create() to mint a short-lived token (5 min TTL).
  * 4. Returns { apiKey, expiresAt } to the caller.
@@ -25,54 +25,47 @@ export async function POST() {
     const currentUser = await getCurrentUser();
     if (!currentUser) {
       return NextResponse.json(
-        { error: "Unauthorized. Please log in first." },
+        { error: "Authentication required." },
         { status: 401 }
       );
     }
 
-    // ── Guard: Verify credits (Admins bypass) ────────────────────────────
+    // ── Guard: Check credits (non-admin only) ────────────────────────────
     if (!currentUser.isAdmin && currentUser.credits <= 0) {
       return NextResponse.json(
-        { error: "Insufficient credits. Please fund your account." },
+        { error: "Insufficient credits. Please top up your account." },
         { status: 403 }
       );
     }
 
-    // ── Guard: ensure the API key is configured ──────────────────────────
+    // ── Mint ephemeral token ─────────────────────────────────────────────
     const apiKey = process.env.DECART_API_KEY;
     if (!apiKey) {
       console.error("[decart-auth] DECART_API_KEY is not set in environment.");
       return NextResponse.json(
-        { error: "Server misconfiguration: missing API key." },
+        { error: "Decart API key is not configured on the server." },
         { status: 500 }
       );
     }
 
-    // ── Initialize the Decart client with the permanent server-side key ──
     const client = createDecartClient({ apiKey });
 
-    // ── Mint a short-lived client token ──────────────────────────────────
-    // - expiresIn: 300 seconds (5 minutes) — long enough for session setup,
-    //   short enough to limit exposure if intercepted.
-    // - allowedModels: restrict to "lucy-latest" to prevent misuse.
     const token = await client.tokens.create({
-      expiresIn: 300,
+      expiresIn: 300, // 5 minutes TTL
       allowedModels: ["lucy-2.1"],
     });
 
-    // ── Return the ephemeral token to the frontend ───────────────────────
+    // Calculate the absolute expiry timestamp
+    const expiresAt = Date.now() + 300 * 1000;
+
     return NextResponse.json({
       apiKey: token.apiKey,
-      expiresAt: token.expiresAt,
+      expiresAt,
     });
-  } catch (error: unknown) {
-    const message =
-      error instanceof Error ? error.message : "Unknown error during token creation.";
-    console.error("[decart-auth] Token creation failed:", message);
-
-    return NextResponse.json(
-      { error: `Token creation failed: ${message}` },
-      { status: 500 }
-    );
+  } catch (err: unknown) {
+    const msg =
+      err instanceof Error ? err.message : "Failed to generate Decart token.";
+    console.error("[decart-auth] Token generation failed:", msg);
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

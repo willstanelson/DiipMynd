@@ -9,7 +9,9 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "@decartai/sdk": "^0.1.5",
+    "@decartai/sdk": "^0.1.7",
+    "@fal-ai/client": "^1.10.1",
+    "@fal-ai/server-proxy": "^1.2.1",
     "@supabase/supabase-js": "^2.108.1",
     "next": "16.2.9",
     "react": "19.2.4",

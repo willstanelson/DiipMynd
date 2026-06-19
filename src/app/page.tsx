@@ -85,7 +85,7 @@ export default function Home() {
       {/* Footer tagline */}
       <footer className="mt-8 text-center">
         <p className="text-xs text-white/20 tracking-widest uppercase">
-          Powered by Decart AI · WebRTC · Next.js
+          Powered by Decart + Fal.ai · Smart Router · WebRTC · Next.js
         </p>
       </footer>
     </main>

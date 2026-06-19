@@ -4,14 +4,21 @@
 // ============================================================================
 
 import type { Metadata, Viewport } from "next";
+import { Inter } from "next/font/google";
 import "./globals.css";
+
+const inter = Inter({
+  subsets: ["latin"],
+  display: "swap",
+  weight: ["300", "400", "500", "600", "700", "800"],
+});
 
 // ── SEO Metadata ──────────────────────────────────────────────────────────
 export const metadata: Metadata = {
   title: "DiipMynd — Real-Time AI Video Transformation",
   description:
-    "Transform your live webcam feed in real time with AI. Become a 3D character, enter a cyberpunk world, or turn into an oil painting — powered by Decart AI and WebRTC.",
-  keywords: ["AI", "video transformation", "real-time", "WebRTC", "Decart", "live avatar"],
+    "Transform your live webcam feed in real time with AI. Become a 3D character, enter a cyberpunk world, or turn into an oil painting — powered by Fal.ai and WebRTC.",
+  keywords: ["AI", "video transformation", "real-time", "WebRTC", "Fal.ai", "live avatar"],
   authors: [{ name: "DiipMynd" }],
   openGraph: {
     title: "DiipMynd — Real-Time AI Video Transformation",
@@ -34,16 +41,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="dark">
-      <head>
-        {/* Google Fonts — Inter (variable weight) */}
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link
-          href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
-          rel="stylesheet"
-        />
-      </head>
-      <body className="antialiased">
+      <body className={`${inter.className} antialiased`}>
         {children}
       </body>
     </html>

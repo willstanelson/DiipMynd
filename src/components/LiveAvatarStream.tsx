@@ -1,14 +1,14 @@
 // ============================================================================
 // DiipMynd — LiveAvatarStream Component
 //
-// Full WebRTC lifecycle manager for the Decart AI real-time video pipeline.
+// Hybrid WebRTC lifecycle manager for Decart + Fal.ai Smart Router pipeline.
 //
 // LIFECYCLE OVERVIEW:
 // ┌─────────────────────────────────────────────────────────────────────┐
-// │ 1. INITIALIZATION  — Fetch ephemeral token from /api/decart-auth   │
+// │ 1. SMART ROUTER    — Probe providers → pick optimal backend        │
 // │ 2. CAMERA SETUP    — getUserMedia with model-specific constraints  │
-// │ 3. CONNECTION       — client.realtime.connect() → WebRTC handshake │
-// │ 4. STREAM PIPING    — onRemoteStream → <video> element             │
+// │ 3. CONNECTION       — Decart SDK or Fal.ai manual WebRTC          │
+// │ 4. STREAM PIPING    — onRemoteStream → <video> element            │
 // │ 5. TEARDOWN         — disconnect() + stop media tracks on unmount  │
 // └─────────────────────────────────────────────────────────────────────┘
 // ============================================================================
@@ -20,9 +20,21 @@ import {
   createDecartClient,
   models,
   type RealTimeClient,
-  type ConnectionState as DecartConnectionState,
 } from "@decartai/sdk";
-import type { ConnectionState, DecartAuthResponse, StreamError } from "@/types";
+import { fal } from "@fal-ai/client";
+import type {
+  ConnectionState,
+  StreamError,
+  DecartAuthResponse,
+  Provider,
+  ProviderPreference,
+} from "@/types";
+import { selectProvider, getProviderConfig } from "@/lib/smartRouter";
+
+fal.config({
+  proxyUrl: "/DiipMynd/api/fal/proxy",
+});
+
 import ConnectionStatus from "./ConnectionStatus";
 import PromptInput from "./PromptInput";
 import ReferenceImageUpload from "./ReferenceImageUpload";
@@ -34,11 +46,6 @@ import TopUpModal from "./TopUpModal";
 // ── Constants ──────────────────────────────────────────────────────────────
 const MAX_RECONNECT_ATTEMPTS = 5;
 const BASE_RECONNECT_DELAY_MS = 2000;
-
-// Pinned model — "lucy-2.1" is the stable canonical name.
-// "lucy-latest" is a server-side moving target that can change behavior
-// without notice, causing inconsistent frame quality.
-const MODEL_NAME = "lucy-2.1" as const;
 
 // Default prompt: highly specific to prevent hallucinations.
 // Vague prompts like "keep the person as they are" give the model too much
@@ -79,10 +86,20 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
   const [useLocalMode, setUseLocalMode] = useState(false);
   const [localResolution, setLocalResolution] = useState(512);
 
+  // ── Smart Router State ───────────────────────────────────────────────
+  const [providerPreference, setProviderPreference] = useState<ProviderPreference>("auto");
+  const [activeProvider, setActiveProvider] = useState<Provider | null>(null);
+  const [routingReason, setRoutingReason] = useState<string>("");
+
   // ── Refs ───────────────────────────────────────────────────────────────
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
+  // Decart SDK refs
   const realtimeClientRef = useRef<RealTimeClient | null>(null);
+  // Fal.ai manual WebRTC refs
+  const falRealtimeConnectionRef = useRef<any>(null);
+  const falPeerConnectionRef = useRef<RTCPeerConnection | null>(null);
+  const referenceImageUrlRef = useRef<string>("");
   const localStreamRef = useRef<MediaStream | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const localWsRef = useRef<WebSocket | null>(null);
@@ -96,6 +113,8 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
   // Track the active reference image for the AI transformation
   const referenceImageRef = useRef<File | null>(null);
   const creditsRef = useRef(user.credits);
+  // Track which provider is active in refs for use in callbacks
+  const activeProviderRef = useRef<Provider | null>(null);
 
   // Keep creditsRef and credits state synchronized with user prop
   useEffect(() => {
@@ -105,6 +124,11 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
   useEffect(() => {
     creditsRef.current = credits;
   }, [credits]);
+
+  // Keep activeProviderRef in sync
+  useEffect(() => {
+    activeProviderRef.current = activeProvider;
+  }, [activeProvider]);
 
   // Check local companion status on mount and periodically
   const checkLocalAccelerator = async () => {
@@ -140,14 +164,34 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
   }, []);
 
   const disconnectRealtime = useCallback(() => {
+    intentionalDisconnectRef.current = true; // prevent reconnect loop
+
+    // Decart SDK cleanup
     if (realtimeClientRef.current) {
-      intentionalDisconnectRef.current = true; // prevent reconnect loop
       try {
         realtimeClientRef.current.disconnect();
-      } catch {
-        // Swallow — the connection may already be closed
+      } catch (err) {
+        console.warn("[DiipMynd] Error disconnecting Decart client:", err);
       }
       realtimeClientRef.current = null;
+    }
+
+    // Fal.ai cleanup
+    if (falRealtimeConnectionRef.current) {
+      try {
+        falRealtimeConnectionRef.current.close();
+      } catch (err) {
+        console.warn("[DiipMynd] Error closing Fal connection:", err);
+      }
+      falRealtimeConnectionRef.current = null;
+    }
+    if (falPeerConnectionRef.current) {
+      try {
+        falPeerConnectionRef.current.close();
+      } catch (err) {
+        console.warn("[DiipMynd] Error closing peer connection:", err);
+      }
+      falPeerConnectionRef.current = null;
     }
   }, []);
 
@@ -158,36 +202,19 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
     }
   }, []);
 
-  // ── Step 1: Fetch an ephemeral client token from the backend ──────────
-  const fetchToken = useCallback(async (): Promise<string> => {
-    setConnectionState("requesting-token");
-
-    const res = await fetch("/DiipMynd/api/decart-auth", { method: "POST" });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({ error: "Unknown server error" }));
-      throw new Error(body.error || `Token endpoint returned ${res.status}`);
-    }
-
-    const data: DecartAuthResponse = await res.json();
-    return data.apiKey;
-  }, []);
-
-  // ── Step 2: Initialize the webcam with model-specific constraints ─────
-  const initCamera = useCallback(async (): Promise<MediaStream> => {
+  // ── Camera initialization ────────────────────────────────────────────
+  const initCamera = useCallback(async (provider: Provider): Promise<MediaStream> => {
     setConnectionState("initializing-camera");
 
-    const model = models.realtime(MODEL_NAME);
+    const config = getProviderConfig(provider);
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: isMicEnabled,
         video: {
-          // Use exact constraints to match the model's native resolution.
-          // Using `ideal` lets the browser negotiate a different resolution,
-          // which causes server-side rescaling and adds latency + flickering.
-          frameRate: { exact: typeof model.fps === "number" ? model.fps : (model.fps.ideal ?? model.fps.exact ?? 25) },
-          width: { exact: model.width },
-          height: { exact: model.height },
+          frameRate: { exact: config.fps },
+          width: { exact: config.width },
+          height: { exact: config.height },
         },
       });
 
@@ -195,15 +222,15 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
       setHasLocalStream(true);
       return stream;
     } catch (err: unknown) {
-      // If exact constraints fail, fall back to ideal (some webcams can't do exact 704p)
+      // If exact constraints fail, fall back to ideal
       if (err instanceof DOMException && err.name === "OverconstrainedError") {
         console.warn("[DiipMynd] Exact camera constraints failed, falling back to ideal constraints");
         const fallbackStream = await navigator.mediaDevices.getUserMedia({
           audio: isMicEnabled,
           video: {
-            frameRate: typeof model.fps === "number" ? model.fps : (model.fps.ideal ?? 25),
-            width: { ideal: model.width },
-            height: { ideal: model.height },
+            frameRate: config.fps,
+            width: { ideal: config.width },
+            height: { ideal: config.height },
           },
         });
         localStreamRef.current = fallbackStream;
@@ -262,106 +289,199 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
     [clearReconnectTimer]
   );
 
-  // ── Step 3 & 4: Connect to Decart and pipe the remote stream ──────────
+  // ── Decart SDK Connection Flow ────────────────────────────────────────
   const connectToDecart = useCallback(
-    async (token: string, stream: MediaStream, startSessionFn: () => Promise<void>) => {
+    async (stream: MediaStream, startSessionFn: () => Promise<void>) => {
+      setConnectionState("requesting-token");
+
+      // 1. Fetch ephemeral token from our backend
+      const tokenRes = await fetch("/DiipMynd/api/decart-auth", { method: "POST" });
+      if (!tokenRes.ok) {
+        const body = await tokenRes.json().catch(() => ({ error: "Unknown server error" }));
+        throw new Error(body.error || `Token endpoint returned ${tokenRes.status}`);
+      }
+      const tokenData: DecartAuthResponse = await tokenRes.json();
+
+      if (!isMountedRef.current || intentionalDisconnectRef.current) return;
+
       setConnectionState("connecting");
       intentionalDisconnectRef.current = false;
 
-      const client = createDecartClient({ apiKey: token });
-      const model = models.realtime(MODEL_NAME);
+      // 2. Initialize the Decart client with the ephemeral token
+      const client = createDecartClient({ apiKey: tokenData.apiKey });
+      const model = models.realtime("lucy-2.1");
 
-      // Build initial state — include reference image if one is set
+      // 3. Determine initial state with prompt and optional reference image
       const initialPrompt = referenceImageRef.current
         ? (currentPromptRef.current === DEFAULT_PROMPT ? IMAGE_TRANSFORM_PROMPT : currentPromptRef.current)
         : currentPromptRef.current;
 
       const initialState: Record<string, unknown> = {
-        prompt: {
-          text: initialPrompt,
-          // DISABLED: enhance rewrites the prompt on every call, causing
-          // frame-to-frame style drift which manifests as flickering.
-          // Use explicit, well-crafted prompts instead.
-          enhance: false,
-        },
+        prompt: { text: initialPrompt, enhance: false },
       };
 
-      // If a reference image is already selected, include it from the start
       if (referenceImageRef.current) {
         initialState.image = referenceImageRef.current;
       }
 
-      // Establish the WebRTC connection
+      // 4. Connect — the SDK manages WebRTC internally
       const realtimeClient = await client.realtime.connect(stream, {
         model,
-
-        // ── Initial state: prompt + optional reference image ─────────
-        initialState,
-
-        // ── Let SDK handle mirroring ────────────────────────────────
-        mirror: "auto",
-
-        // ── Stream Piping: attach the AI-transformed video to the DOM
         onRemoteStream: (transformedStream: MediaStream) => {
+          console.log("[DiipMynd] Decart remote stream received");
           if (remoteVideoRef.current) {
             remoteVideoRef.current.srcObject = transformedStream;
           }
         },
-
-        // ── Connection state change handler ─────────────────────────
-        // SDK states: "connecting" | "connected" | "generating" |
-        //             "disconnected" | "reconnecting"
-        onConnectionChange: (state: DecartConnectionState) => {
-          console.log("[DiipMynd] Connection state:", state);
-          if (!isMountedRef.current) return;
-
-          switch (state) {
-            case "connected":
-            case "generating":
-              // Successfully connected — reset retry counter
-              setConnectionState("connected");
-              setRetryCount(0);
-              break;
-
-            case "reconnecting":
-              // SDK is internally retrying — show status but don't
-              // trigger our own reconnect (avoids the duplicate loop)
-              setConnectionState("reconnecting");
-              break;
-
-            case "disconnected":
-              // SDK gave up its internal reconnection.
-              // Only trigger our reconnect if we didn't initiate the disconnect.
-              if (!intentionalDisconnectRef.current) {
-                scheduleReconnect(startSessionFn);
-              }
-              break;
-
-            case "connecting":
-              setConnectionState("connecting");
-              break;
-          }
-        },
-      });
-
-      // ── Diagnostics: listen for real-time WebRTC stats ───────────────
-      realtimeClient.on("stats", (stats) => {
-        if (!isMountedRef.current) return;
-        // Cast to our display-friendly shape
-        setDiagnosticsStats(stats as unknown as DiagnosticsStats);
-      });
-
-      // ── Diagnostics: connection breakdown and stall events ───────────
-      realtimeClient.on("diagnostic", (event) => {
-        console.log("[DiipMynd] Diagnostic:", event.name, event.data);
-      });
-
-      // Listen for errors via the event emitter
-      realtimeClient.on("error", (err) => {
-        console.error("[DiipMynd] SDK error:", err);
+        initialState,
       });
 
       realtimeClientRef.current = realtimeClient;
+
+      // 5. Listen for connection state changes
+      realtimeClient.on("connectionChange", (state: string) => {
+        if (!isMountedRef.current) return;
+        console.log("[DiipMynd] Decart connection state:", state);
+        switch (state) {
+          case "connected":
+          case "generating":
+            setConnectionState("connected");
+            setRetryCount(0);
+            break;
+          case "connecting":
+            setConnectionState("connecting");
+            break;
+          case "reconnecting":
+            setConnectionState("reconnecting");
+            break;
+          case "disconnected":
+            if (!intentionalDisconnectRef.current) {
+              scheduleReconnect(startSessionFn);
+            }
+            break;
+        }
+      });
+
+      // If we're already connected at this point, set state
+      setConnectionState("connected");
+      setRetryCount(0);
+    },
+    [scheduleReconnect]
+  );
+
+  // ── Fal.ai Manual WebRTC Connection Flow ──────────────────────────────
+  const connectToFal = useCallback(
+    async (stream: MediaStream, startSessionFn: () => Promise<void>) => {
+      setConnectionState("connecting");
+      intentionalDisconnectRef.current = false;
+
+      const falModelName = "decart/lucy2-vton/realtime";
+
+      let referenceImageUrl = "";
+      if (referenceImageRef.current) {
+        try {
+          referenceImageUrl = await fal.storage.upload(referenceImageRef.current);
+          referenceImageUrlRef.current = referenceImageUrl;
+          console.log("[DiipMynd] Reference image uploaded to Fal:", referenceImageUrl);
+        } catch (err) {
+          console.error("[DiipMynd] Failed to upload reference image to Fal:", err);
+        }
+      } else {
+        referenceImageUrlRef.current = "";
+      }
+
+      const initialPrompt = referenceImageUrl
+        ? (currentPromptRef.current === DEFAULT_PROMPT ? IMAGE_TRANSFORM_PROMPT : currentPromptRef.current)
+        : currentPromptRef.current;
+
+      const connection = fal.realtime.connect(falModelName, {
+        connectionKey: `session-${Date.now()}`,
+        throttleInterval: 0,
+        onResult: async (result: any) => {
+          console.log("[DiipMynd] Fal realtime message:", result);
+          if (result.type === "iceservers" || result.iceServers) {
+            const iceServers = result.iceservers || result.iceServers;
+            const pc = new RTCPeerConnection({ iceServers });
+            falPeerConnectionRef.current = pc;
+
+            pc.ontrack = (e) => {
+              console.log("[DiipMynd] Remote track received:", e.streams);
+              if (remoteVideoRef.current && e.streams[0]) {
+                remoteVideoRef.current.srcObject = e.streams[0];
+              }
+            };
+
+            pc.onicecandidate = (e) => {
+              if (e.candidate) {
+                connection.send({
+                  type: "candidate",
+                  candidate: e.candidate.toJSON(),
+                });
+              }
+            };
+
+            pc.onconnectionstatechange = () => {
+              if (!pc || !isMountedRef.current) return;
+              console.log("[DiipMynd] PeerConnection state:", pc.connectionState);
+              switch (pc.connectionState) {
+                case "connected":
+                  setConnectionState("connected");
+                  setRetryCount(0);
+                  break;
+                case "connecting":
+                  setConnectionState("connecting");
+                  break;
+                case "failed":
+                case "disconnected":
+                  if (!intentionalDisconnectRef.current) {
+                    scheduleReconnect(startSessionFn);
+                  }
+                  break;
+              }
+            };
+
+            stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+
+            const payload: any = {
+              type: "offer",
+              sdp: offer.sdp,
+              prompt: initialPrompt,
+            };
+            if (referenceImageUrl) {
+              payload.reference_image_url = referenceImageUrl;
+            }
+            connection.send(payload);
+          } else if (result.type === "answer" || result.sdp) {
+            const pc = falPeerConnectionRef.current;
+            if (pc) {
+              await pc.setRemoteDescription(
+                new RTCSessionDescription({
+                  type: "answer",
+                  sdp: result.sdp,
+                })
+              );
+            }
+          } else if (result.type === "candidate" && result.candidate) {
+            const pc = falPeerConnectionRef.current;
+            if (pc) {
+              await pc.addIceCandidate(new RTCIceCandidate(result.candidate));
+            }
+          }
+        },
+        onError: (err) => {
+          console.error("[DiipMynd] Fal realtime connection error:", err);
+          setError({
+            code: "UNKNOWN",
+            message: err.message || "Fal.ai stream connection error",
+          });
+          setConnectionState("error");
+        },
+      });
+
+      falRealtimeConnectionRef.current = connection;
     },
     [scheduleReconnect]
   );
@@ -374,7 +494,7 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
 
     try {
       setConnectionState("initializing-camera");
-      const stream = localStreamRef.current || (await initCamera());
+      const stream = localStreamRef.current || (await initCamera("decart"));
       if (!isMountedRef.current || intentionalDisconnectRef.current) return;
 
       if (localVideoRef.current) {
@@ -501,8 +621,10 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
       });
       setConnectionState("error");
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initCamera]);
 
+  // ── Main Session Orchestrator (Smart Router entry point) ──────────────
   const startSession = useCallback(async () => {
     // Check credits for non-admin users before starting any session
     if (!user.isAdmin && creditsRef.current <= 0) {
@@ -513,7 +635,10 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
       return;
     }
 
+    // Local mode bypasses cloud providers entirely
     if (useLocalMode) {
+      setActiveProvider(null);
+      setRoutingReason("Local GPU Engine");
       await startLocalSession();
       return;
     }
@@ -523,26 +648,40 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
     intentionalDisconnectRef.current = false;
 
     try {
-      // Step 1: Get token
-      const token = await fetchToken();
-      // Abort if user clicked Stop or component unmounted during the await
+      // ── Step 1: Smart Router — select the optimal provider ─────────
+      const { provider, reason } = await selectProvider(providerPreference);
+      setActiveProvider(provider);
+      setRoutingReason(reason);
+      activeProviderRef.current = provider;
+      console.log(`[DiipMynd] Smart Router selected: ${provider} (${reason})`);
+
+      // ── Step 2: Get camera stream (reuse if already active) ────────
+      const stream = localStreamRef.current || (await initCamera(provider));
       if (!isMountedRef.current || intentionalDisconnectRef.current) return;
 
-      // Step 2: Get camera stream (reuse if already active)
-      const stream = localStreamRef.current || (await initCamera());
-      if (!isMountedRef.current || intentionalDisconnectRef.current) return;
-
-      // Cleanup any stale connection before making a new one
+      // ── Step 3: Cleanup any stale connections ──────────────────────
       if (realtimeClientRef.current) {
-        try { realtimeClientRef.current.disconnect(); } catch { /* ignore */ }
+        try { realtimeClientRef.current.disconnect(); } catch {}
         realtimeClientRef.current = null;
+      }
+      if (falRealtimeConnectionRef.current) {
+        try { falRealtimeConnectionRef.current.close(); } catch {}
+        falRealtimeConnectionRef.current = null;
+      }
+      if (falPeerConnectionRef.current) {
+        try { falPeerConnectionRef.current.close(); } catch {}
+        falPeerConnectionRef.current = null;
       }
 
       // Final check before the most expensive operation
       if (intentionalDisconnectRef.current) return;
 
-      // Steps 3 & 4: Connect and pipe
-      await connectToDecart(token, stream, startSession);
+      // ── Step 4: Connect to the selected provider ───────────────────
+      if (provider === "decart") {
+        await connectToDecart(stream, startSession);
+      } else {
+        await connectToFal(stream, startSession);
+      }
     } catch (err: unknown) {
       // Don't show errors if user deliberately stopped during an inflight request
       if (!isMountedRef.current || intentionalDisconnectRef.current) return;
@@ -559,19 +698,16 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
         }
       }
 
-      if (streamError.message.includes("Token") || streamError.message.includes("token")) {
-        streamError.code = "TOKEN_FAILED";
-      }
-
       setError(streamError);
       setConnectionState("error");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fetchToken, initCamera, connectToDecart, useLocalMode, startLocalSession]);
+  }, [initCamera, connectToDecart, connectToFal, useLocalMode, startLocalSession, providerPreference]);
 
-  // ── Step 5: Teardown on unmount ────────────────────────────────────────
+  // ── Teardown on unmount ────────────────────────────────────────────────
   useEffect(() => {
     isMountedRef.current = true;
+    const remoteVideo = remoteVideoRef.current;
 
     return () => {
       isMountedRef.current = false;
@@ -585,8 +721,8 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
       if (streamIntervalRef.current) {
         clearInterval(streamIntervalRef.current);
       }
-      if (remoteVideoRef.current) {
-        remoteVideoRef.current.srcObject = null;
+      if (remoteVideo) {
+        remoteVideo.srcObject = null;
       }
       if (heartbeatIntervalRef.current) {
         clearInterval(heartbeatIntervalRef.current);
@@ -598,21 +734,40 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
   const handlePromptChange = useCallback(async (prompt: string) => {
     setCurrentPrompt(prompt);
     currentPromptRef.current = prompt;
+
+    // Decart SDK path
     if (realtimeClientRef.current) {
-      // Use atomic set() to update prompt + image together (prevents flicker)
-      // enhance: false — we use explicit prompts, not SDK-expanded ones
-      await realtimeClientRef.current.set({
-        prompt,
-        image: referenceImageRef.current,
-        enhance: false,
-      });
+      try {
+        if (referenceImageRef.current) {
+          realtimeClientRef.current.set({
+            prompt,
+            enhance: false,
+            image: referenceImageRef.current,
+          });
+        } else {
+          realtimeClientRef.current.setPrompt(prompt);
+        }
+      } catch (err) {
+        console.error("[DiipMynd] Failed to update Decart prompt:", err);
+      }
+    }
+
+    // Fal.ai path
+    if (falRealtimeConnectionRef.current) {
+      const payload: any = { prompt };
+      if (referenceImageUrlRef.current) {
+        payload.reference_image_url = referenceImageUrlRef.current;
+      }
+      falRealtimeConnectionRef.current.send(payload);
     }
   }, []);
 
-  // ── Reference image updates pushed to the active session ──────────
+  // ── Reference image updates pushed to the active session ──────────────
   const handleImageChange = useCallback(async (image: File | null) => {
     referenceImageRef.current = image;
+
     if (useLocalMode) {
+      // Local companion path
       if (image) {
         const formData = new FormData();
         formData.append("file", image);
@@ -631,19 +786,52 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
           console.error("[DiipMynd] Failed to upload face to local engine:", err);
         }
       }
-    } else {
+    } else if (activeProviderRef.current === "decart") {
+      // Decart SDK path — use set() with the image file directly
       if (realtimeClientRef.current) {
-        // Use atomic set() to send image + prompt together in one call
-        // This prevents the model from briefly processing mismatched state
-        const prompt = image
-          ? (currentPromptRef.current === DEFAULT_PROMPT ? IMAGE_TRANSFORM_PROMPT : currentPromptRef.current)
-          : currentPromptRef.current;
-
-        await realtimeClientRef.current.set({
-          prompt,
-          image: image,
-          enhance: false,
-        });
+        try {
+          if (image) {
+            const prompt = currentPromptRef.current === DEFAULT_PROMPT ? IMAGE_TRANSFORM_PROMPT : currentPromptRef.current;
+            realtimeClientRef.current.set({
+              prompt,
+              enhance: false,
+              image,
+            });
+          } else {
+            realtimeClientRef.current.set({
+              prompt: currentPromptRef.current,
+              enhance: false,
+              image: null,
+            });
+          }
+        } catch (err) {
+          console.error("[DiipMynd] Failed to update Decart reference image:", err);
+        }
+      }
+    } else {
+      // Fal.ai path — upload to Fal storage then send URL
+      if (image) {
+        try {
+          const url = await fal.storage.upload(image);
+          referenceImageUrlRef.current = url;
+          if (falRealtimeConnectionRef.current) {
+            const prompt = currentPromptRef.current === DEFAULT_PROMPT ? IMAGE_TRANSFORM_PROMPT : currentPromptRef.current;
+            falRealtimeConnectionRef.current.send({
+              prompt,
+              reference_image_url: url,
+            });
+          }
+        } catch (err) {
+          console.error("[DiipMynd] Failed to upload image to Fal storage:", err);
+        }
+      } else {
+        referenceImageUrlRef.current = "";
+        if (falRealtimeConnectionRef.current) {
+          falRealtimeConnectionRef.current.send({
+            prompt: currentPromptRef.current,
+            reference_image_url: "",
+          });
+        }
       }
     }
   }, [useLocalMode]);
@@ -688,6 +876,8 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
     setRetryCount(0);
     setDiagnosticsStats(null);
     setIsMicMuted(false);
+    setActiveProvider(null);
+    setRoutingReason("");
 
     // Clear heartbeat interval
     if (heartbeatIntervalRef.current) {
@@ -805,6 +995,9 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
     }
   }, [hasLocalStream]);
 
+  // Provider preference is disabled while a session is active
+  const isSessionActive = isConnected || isLoading;
+
   return (
     <div className="relative flex flex-col w-full max-w-6xl mx-auto gap-6">
       {/* ── Header Bar ──────────────────────────────────────────────── */}
@@ -881,6 +1074,26 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
           <ConnectionStatus state={connectionState} retryCount={retryCount} />
         </div>
       </div>
+
+      {/* ── Active Provider Badge ─────────────────────────────────────── */}
+      {activeProvider && isConnected && (
+        <div className="flex items-center gap-2 -mt-3">
+          <div className={`
+            inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold tracking-wider uppercase
+            ${activeProvider === "decart"
+              ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/25"
+              : "bg-amber-500/10 text-amber-400 border border-amber-500/25"}
+          `}>
+            <span className={`w-1.5 h-1.5 rounded-full animate-pulse ${
+              activeProvider === "decart" ? "bg-emerald-400" : "bg-amber-400"
+            }`} />
+            {activeProvider === "decart" ? "⚡ Decart" : "🌐 Fal.ai"}
+          </div>
+          {routingReason && (
+            <span className="text-[9px] text-white/25 font-medium">{routingReason}</span>
+          )}
+        </div>
+      )}
 
       {/* ── Main Layout Grid ────────────────────────────────────────── */}
       <div className="grid grid-cols-1 md:grid-cols-12 gap-6 w-full items-start">
@@ -1032,6 +1245,44 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
 
         {/* Right Column: Controls Panel */}
         <div className="md:col-span-5 w-full flex flex-col gap-4 p-5 rounded-2xl bg-white/[0.03] border border-white/[0.06] backdrop-blur-md">
+          {/* ── Provider Selector (Smart Router) ─────────────────────── */}
+          {!useLocalMode && (
+            <div className="flex flex-col gap-2">
+              <label className="text-[10px] text-white/40 font-bold tracking-widest uppercase">
+                AI Provider
+              </label>
+              <div className="flex items-center gap-1.5">
+                {(["auto", "decart", "fal"] as ProviderPreference[]).map((pref) => (
+                  <button
+                    key={pref}
+                    onClick={() => setProviderPreference(pref)}
+                    disabled={isSessionActive}
+                    className={`
+                      flex-1 px-3 py-2 rounded-xl text-[11px] font-bold tracking-wide uppercase
+                      transition-all duration-200 cursor-pointer
+                      ${providerPreference === pref
+                        ? pref === "auto"
+                          ? "bg-violet-500/20 text-violet-400 border border-violet-500/40 shadow-sm shadow-violet-500/10"
+                          : pref === "decart"
+                            ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 shadow-sm shadow-emerald-500/10"
+                            : "bg-amber-500/20 text-amber-400 border border-amber-500/40 shadow-sm shadow-amber-500/10"
+                        : "bg-white/[0.03] text-white/30 border border-white/[0.06] hover:bg-white/[0.06] hover:text-white/50"
+                      }
+                      disabled:opacity-40 disabled:cursor-not-allowed
+                    `}
+                  >
+                    {pref === "auto" ? "🔀 Auto" : pref === "decart" ? "⚡ Decart" : "🌐 Fal.ai"}
+                  </button>
+                ))}
+              </div>
+              {providerPreference === "auto" && !isSessionActive && (
+                <p className="text-[9px] text-white/20 font-medium leading-relaxed">
+                  Smart Router will probe latency and pick the fastest provider.
+                </p>
+              )}
+            </div>
+          )}
+
           {/* Prompt input — enabled even before connection so user can set it first */}
           <PromptInput
             onPromptChange={handlePromptChange}
