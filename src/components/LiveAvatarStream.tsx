@@ -90,6 +90,7 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
   const [providerPreference, setProviderPreference] = useState<ProviderPreference>("auto");
   const [activeProvider, setActiveProvider] = useState<Provider | null>(null);
   const [routingReason, setRoutingReason] = useState<string>("");
+  const [showPaymentSuccess, setShowPaymentSuccess] = useState(false);
 
   // ── Refs ───────────────────────────────────────────────────────────────
   const localVideoRef = useRef<HTMLVideoElement>(null);
@@ -152,6 +153,22 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
     checkLocalAccelerator();
     const interval = setInterval(checkLocalAccelerator, 3000);
     return () => clearInterval(interval);
+  }, []);
+
+  // Detect Paystack checkout success redirect parameter
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.get("payment") === "success") {
+        setShowPaymentSuccess(true);
+        // Clear the query parameters from the URL history
+        const newUrl = window.location.pathname;
+        window.history.replaceState({}, document.title, newUrl);
+        // Auto-dismiss the toast after 6 seconds
+        const timer = setTimeout(() => setShowPaymentSuccess(false), 6000);
+        return () => clearTimeout(timer);
+      }
+    }
   }, []);
 
   // ── Cleanup helpers ────────────────────────────────────────────────────
@@ -1000,6 +1017,29 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
 
   return (
     <div className="relative flex flex-col w-full max-w-6xl mx-auto gap-6">
+      {/* ── Payment Success Toast ────────────────────────────────────── */}
+      {showPaymentSuccess && (
+        <div className="fixed top-6 right-6 z-50 p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 shadow-xl shadow-emerald-500/5 backdrop-blur-md max-w-sm animate-fadeIn">
+          <div className="flex items-start gap-3">
+            <div className="w-5 h-5 rounded-full bg-emerald-500/20 flex items-center justify-center flex-shrink-0">
+              <span className="text-emerald-400 text-xs">✓</span>
+            </div>
+            <div className="flex-1">
+              <p className="text-xs font-bold text-white">Payment Successful!</p>
+              <p className="text-[10px] text-white/60 mt-0.5 leading-relaxed">
+                Your credits have been added successfully. You can now start transforming your live stream!
+              </p>
+            </div>
+            <button
+              onClick={() => setShowPaymentSuccess(false)}
+              className="text-white/40 hover:text-white text-xs cursor-pointer ml-auto"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ── Header Bar ──────────────────────────────────────────────── */}
       <div className="flex items-center justify-between w-full">
         <div className="flex items-center gap-3">
