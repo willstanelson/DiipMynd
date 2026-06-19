@@ -1,17 +1,11 @@
+/* eslint-disable @next/next/no-page-custom-font */
 // ============================================================================
 // DiipMynd — Root Layout
 // Sets up fonts, metadata, SEO tags, and the global HTML structure.
 // ============================================================================
 
 import type { Metadata, Viewport } from "next";
-import { Inter } from "next/font/google";
 import "./globals.css";
-
-const inter = Inter({
-  subsets: ["latin"],
-  display: "swap",
-  weight: ["300", "400", "500", "600", "700", "800"],
-});
 
 // ── SEO Metadata ──────────────────────────────────────────────────────────
 export const metadata: Metadata = {
@@ -41,7 +35,12 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="light">
-      <body className={`${inter.className} antialiased`}>
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+      </head>
+      <body className="antialiased">
         {children}
       </body>
     </html>

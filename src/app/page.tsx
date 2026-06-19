@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 import LiveAvatarStream from "@/components/LiveAvatarStream";
 import AuthScreen from "@/components/AuthScreen";
 import { SafeUser } from "@/lib/auth";
+import { supabase } from "@/lib/supabase";
 
 export default function Home() {
   const [user, setUser] = useState<SafeUser | null>(null);
@@ -47,6 +48,39 @@ export default function Home() {
   // Check if session exists on load
   const checkSession = async () => {
     try {
+      // 1. Check if there is an active Supabase client-side session (handles OAuth callback codes/tokens)
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (session) {
+        // Synchronize browser session to server-side HttpOnly cookie session
+        const res = await fetch("/api/auth/session", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            accessToken: session.access_token,
+            expiresIn: session.expires_in,
+          }),
+        });
+        
+        const data = await res.json();
+        if (data.user) {
+          setUser(data.user);
+          // Clean up the OAuth authorization parameters and hash fragments from URL bar
+          if (window.location.hash || window.location.search.includes("code=")) {
+            window.history.replaceState(null, "", window.location.pathname);
+          }
+          setLoading(false);
+          return;
+        } else if (data.error) {
+          // If token exchange fails (e.g. user suspended), sign out locally
+          await supabase.auth.signOut();
+          setUser(null);
+          setLoading(false);
+          return;
+        }
+      }
+
+      // 2. Otherwise fallback to standard cookie session check
       const res = await fetch("/api/auth/me");
       const data = await res.json();
       if (data.user) {
@@ -69,6 +103,7 @@ export default function Home() {
   const handleLogout = async () => {
     try {
       await fetch("/api/auth/logout", { method: "POST" });
+      await supabase.auth.signOut(); // Clean up client-side local session
       setUser(null);
     } catch (err) {
       console.error("[app] Logout request failed:", err);
