@@ -59,7 +59,7 @@ export default function AdminPanel({ onClose, onBalanceUpdated, currentUserId }:
     try {
       setLoading(true);
       setError(null);
-      const res = await fetch("/DiipMynd/api/admin/users");
+      const res = await fetch("/api/admin/users");
       const data = await res.json();
       
       if (!res.ok) {
@@ -80,7 +80,7 @@ export default function AdminPanel({ onClose, onBalanceUpdated, currentUserId }:
     try {
       setLoadingRequests(true);
       setError(null);
-      const res = await fetch("/DiipMynd/api/admin/requests");
+      const res = await fetch("/api/admin/requests");
       const data = await res.json();
       
       if (!res.ok) {
@@ -118,7 +118,7 @@ export default function AdminPanel({ onClose, onBalanceUpdated, currentUserId }:
     setFundSuccess(false);
 
     try {
-      const res = await fetch("/DiipMynd/api/admin/users", {
+      const res = await fetch("/api/admin/users", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId: selectedUser.id, amount: fundAmount }),
@@ -157,7 +157,7 @@ export default function AdminPanel({ onClose, onBalanceUpdated, currentUserId }:
     setFundSuccess(false);
 
     try {
-      const res = await fetch("/DiipMynd/api/admin/requests", {
+      const res = await fetch("/api/admin/requests", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ requestId }),

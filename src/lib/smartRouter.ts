@@ -73,7 +73,7 @@ export async function selectProvider(
 
   // ── Auto mode: probe both providers ──────────────────────────────────
   try {
-    const res = await fetch("/DiipMynd/api/provider-health", {
+    const res = await fetch("/api/provider-health", {
       method: "GET",
       signal: AbortSignal.timeout(8000), // 8s max for the whole probe
     });

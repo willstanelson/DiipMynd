@@ -17,7 +17,7 @@ export default function Home() {
   // Check if session exists on load
   const checkSession = async () => {
     try {
-      const res = await fetch("/DiipMynd/api/auth/me");
+      const res = await fetch("/api/auth/me");
       const data = await res.json();
       if (data.user) {
         setUser(data.user);
@@ -38,7 +38,7 @@ export default function Home() {
 
   const handleLogout = async () => {
     try {
-      await fetch("/DiipMynd/api/auth/logout", { method: "POST" });
+      await fetch("/api/auth/logout", { method: "POST" });
       setUser(null);
     } catch (err) {
       console.error("[app] Logout request failed:", err);
@@ -47,7 +47,7 @@ export default function Home() {
 
   const refreshUserBalance = async () => {
     try {
-      const res = await fetch("/DiipMynd/api/auth/me");
+      const res = await fetch("/api/auth/me");
       const data = await res.json();
       if (data.user) {
         setUser(data.user);

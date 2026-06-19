@@ -87,7 +87,7 @@ export default function TopUpModal({ userEmail, onClose, onBalanceUpdated }: Top
     setError(null);
 
     try {
-      const res = await fetch("/DiipMynd/api/credits/initialize-paystack", {
+      const res = await fetch("/api/credits/initialize-paystack", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ packageId: pkg.id }),
@@ -123,7 +123,7 @@ export default function TopUpModal({ userEmail, onClose, onBalanceUpdated }: Top
     setError(null);
 
     try {
-      const res = await fetch("/DiipMynd/api/credits/verify-crypto", {
+      const res = await fetch("/api/credits/verify-crypto", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

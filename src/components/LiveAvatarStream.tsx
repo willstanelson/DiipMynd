@@ -32,7 +32,7 @@ import type {
 import { selectProvider, getProviderConfig } from "@/lib/smartRouter";
 
 fal.config({
-  proxyUrl: "/DiipMynd/api/fal/proxy",
+  proxyUrl: "/api/fal/proxy",
 });
 
 import ConnectionStatus from "./ConnectionStatus";
@@ -314,7 +314,7 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
       setConnectionState("requesting-token");
 
       // 1. Fetch ephemeral token from our backend
-      const tokenRes = await fetch("/DiipMynd/api/decart-auth", { method: "POST" });
+      const tokenRes = await fetch("/api/decart-auth", { method: "POST" });
       if (!tokenRes.ok) {
         const body = await tokenRes.json().catch(() => ({ error: "Unknown server error" }));
         throw new Error(body.error || `Token endpoint returned ${tokenRes.status}`);
@@ -914,7 +914,7 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
       
       heartbeatIntervalRef.current = setInterval(async () => {
         try {
-          const res = await fetch("/DiipMynd/api/credits/heartbeat", { method: "POST" });
+          const res = await fetch("/api/credits/heartbeat", { method: "POST" });
           const data = await res.json();
           if (data.success) {
             setCredits(data.credits);
@@ -1002,7 +1002,7 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
 
       const verifyRef = async () => {
         try {
-          const res = await fetch(`/DiipMynd/api/credits/verify-payment?reference=${encodeURIComponent(reference)}`);
+          const res = await fetch(`/api/credits/verify-payment?reference=${encodeURIComponent(reference)}`);
           const data = await res.json();
           if (data.success) {
             setShowPaymentSuccess(true);

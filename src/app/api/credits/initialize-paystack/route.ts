@@ -50,7 +50,7 @@ export async function POST(request: Request) {
 
     // Determine the base request URL dynamically for redirecting back
     const origin = request.headers.get("origin") || "http://localhost:3000";
-    const callbackUrl = `${origin}/DiipMynd/`;
+    const callbackUrl = `${origin}/`;
 
     console.log(`[paystack-init] Initializing transaction for user ${currentUser.email}: ${name} (${amountKobo} kobo)`);
 

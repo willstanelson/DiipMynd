@@ -22,7 +22,7 @@ export default function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
       const { error } = await supabase.auth.signInWithOAuth({
         provider,
         options: {
-          redirectTo: `${window.location.origin}/DiipMynd/api/auth/callback`,
+          redirectTo: `${window.location.origin}/api/auth/callback`,
         },
       });
       if (error) {
@@ -59,7 +59,7 @@ export default function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
       return;
     }
 
-    const endpoint = isLogin ? "/DiipMynd/api/auth/login" : "/DiipMynd/api/auth/signup";
+    const endpoint = isLogin ? "/api/auth/login" : "/api/auth/signup";
 
     try {
       const res = await fetch(endpoint, {
