@@ -91,6 +91,8 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
   const [activeProvider, setActiveProvider] = useState<Provider | null>(null);
   const [routingReason, setRoutingReason] = useState<string>("");
   const [showPaymentSuccess, setShowPaymentSuccess] = useState(false);
+  const [showPaymentFailed, setShowPaymentFailed] = useState(false);
+  const [paymentErrorMessage, setPaymentErrorMessage] = useState("");
 
   // ── Refs ───────────────────────────────────────────────────────────────
   const localVideoRef = useRef<HTMLVideoElement>(null);
@@ -986,6 +988,43 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
     };
   }, []);
 
+  // ── Payment Verification Hook ─────────────────────────────────────────
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const params = new URLSearchParams(window.location.search);
+    const reference = params.get("reference") || params.get("trxref");
+
+    if (reference) {
+      // Clear URL parameters immediately so page refreshes don't re-trigger verification
+      const newUrl = window.location.pathname;
+      window.history.replaceState({}, document.title, newUrl);
+
+      const verifyRef = async () => {
+        try {
+          const res = await fetch(`/DiipMynd/api/credits/verify-payment?reference=${encodeURIComponent(reference)}`);
+          const data = await res.json();
+          if (data.success) {
+            setShowPaymentSuccess(true);
+            onBalanceUpdated();
+            setTimeout(() => setShowPaymentSuccess(false), 6000);
+          } else {
+            setPaymentErrorMessage(data.message || "Payment verification failed or transaction was canceled.");
+            setShowPaymentFailed(true);
+            setTimeout(() => setShowPaymentFailed(false), 7000);
+          }
+        } catch (err) {
+          console.error("Failed to verify payment reference:", err);
+          setPaymentErrorMessage("A network error occurred while verifying your payment.");
+          setShowPaymentFailed(true);
+          setTimeout(() => setShowPaymentFailed(false), 7000);
+        }
+      };
+
+      verifyRef();
+    }
+  }, [onBalanceUpdated]);
+
   const handlePopOut = useCallback(async () => {
     if (remoteVideoRef.current) {
       try {
@@ -1032,6 +1071,29 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
             </div>
             <button
               onClick={() => setShowPaymentSuccess(false)}
+              className="text-white/40 hover:text-white text-xs cursor-pointer ml-auto"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Payment Failure Toast ────────────────────────────────────── */}
+      {showPaymentFailed && (
+        <div className="fixed top-6 right-6 z-50 p-4 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-300 shadow-xl shadow-rose-500/5 backdrop-blur-md max-w-sm animate-fadeIn">
+          <div className="flex items-start gap-3">
+            <div className="w-5 h-5 rounded-full bg-rose-500/20 flex items-center justify-center flex-shrink-0">
+              <span className="text-rose-400 text-xs">!</span>
+            </div>
+            <div className="flex-1">
+              <p className="text-xs font-bold text-white">Payment Unsuccessful</p>
+              <p className="text-[10px] text-white/60 mt-0.5 leading-relaxed">
+                {paymentErrorMessage || "The payment checkout session was canceled or could not be completed."}
+              </p>
+            </div>
+            <button
+              onClick={() => setShowPaymentFailed(false)}
               className="text-white/40 hover:text-white text-xs cursor-pointer ml-auto"
             >
               ✕
@@ -1417,6 +1479,7 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
         <TopUpModal
           userEmail={user.email}
           onClose={() => setIsTopUpOpen(false)}
+          onBalanceUpdated={onBalanceUpdated}
         />
       )}
     </div>
