@@ -61,9 +61,11 @@ interface LiveAvatarStreamProps {
   user: SafeUser;
   onLogout: () => void;
   onBalanceUpdated: () => void;
+  theme: "light" | "dark";
+  toggleTheme: () => void;
 }
 
-export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: LiveAvatarStreamProps) {
+export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated, theme, toggleTheme }: LiveAvatarStreamProps) {
   // ── State ──────────────────────────────────────────────────────────────
   const [connectionState, setConnectionState] = useState<ConnectionState>("idle");
   const [error, setError] = useState<StreamError | null>(null);
@@ -1105,37 +1107,46 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
       {/* ── Header Bar ──────────────────────────────────────────────── */}
       <div className="flex items-center justify-between w-full">
         <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-extrabold tracking-tight text-slate-900">
+          <h1 className="text-2xl font-extrabold tracking-tight text-slate-900 dark:text-slate-100">
             DiipMynd
           </h1>
-          <span className="text-xs text-slate-400 font-semibold tracking-wider uppercase">
+          <span className="text-xs text-slate-400 dark:text-slate-555 dark:text-slate-500 font-semibold tracking-wider uppercase">
             Real-time AI
           </span>
         </div>
         
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-3 bg-white border border-slate-200 rounded-2xl px-4 py-2 text-xs shadow-sm">
+          <div className="flex items-center gap-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl px-4 py-2 text-xs shadow-sm transition-colors duration-200">
             <div className="flex flex-col text-right">
-              <span className="text-slate-500 font-medium truncate max-w-[150px]" title={user.email}>{user.email}</span>
-              <span className="text-indigo-600 font-extrabold tabular-nums">{credits} credits</span>
+              <span className="text-slate-500 dark:text-slate-400 font-medium truncate max-w-[150px]" title={user.email}>{user.email}</span>
+              <span className="text-indigo-600 dark:text-indigo-400 font-extrabold tabular-nums">{credits} credits</span>
             </div>
             <button
               onClick={() => setIsTopUpOpen(true)}
-              className="px-2.5 py-1 text-[10px] font-bold text-emerald-700 bg-emerald-100 hover:bg-emerald-200 rounded-lg transition-colors cursor-pointer"
+              className="px-2.5 py-1 text-[10px] font-bold text-emerald-700 bg-emerald-100 hover:bg-emerald-200 dark:text-emerald-355 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/50 rounded-lg transition-colors cursor-pointer"
             >
               💳 Top Up
             </button>
             {user.isAdmin && (
               <button
                 onClick={() => setIsAdminPanelOpen(true)}
-                className="px-2.5 py-1 text-[10px] font-bold text-indigo-700 bg-indigo-100 hover:bg-indigo-200 rounded-lg transition-colors cursor-pointer"
+                className="px-2.5 py-1 text-[10px] font-bold text-indigo-700 bg-indigo-100 hover:bg-indigo-200 dark:text-indigo-355 dark:bg-indigo-950/40 dark:hover:bg-indigo-900/50 rounded-lg transition-colors cursor-pointer"
               >
                 🛡️ Dev Admin
               </button>
             )}
+            {/* Theme Toggle Button */}
+            <button
+              onClick={toggleTheme}
+              className="p-1 text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 transition-colors cursor-pointer"
+              title={theme === "light" ? "Switch to Dark Mode" : "Switch to Light Mode"}
+            >
+              {theme === "light" ? "🌙" : "☀️"}
+            </button>
+            {/* Log Out Button */}
             <button
               onClick={onLogout}
-              className="p-1 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+              className="p-1 text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 transition-colors cursor-pointer"
               title="Log Out"
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -1150,8 +1161,8 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
               className={`
                 px-3 py-1.5 rounded-xl text-[10px] font-bold tracking-wider uppercase transition-all duration-200 cursor-pointer
                 ${useLocalMode
-                  ? "bg-indigo-100 text-indigo-700 border border-indigo-200 hover:bg-indigo-200"
-                  : "bg-white text-slate-500 border border-slate-200 hover:text-slate-700 hover:bg-slate-50"}
+                  ? "bg-indigo-100 text-indigo-700 border border-indigo-200 dark:bg-indigo-950/50 dark:text-indigo-300 dark:border-indigo-900 hover:bg-indigo-200 dark:hover:bg-indigo-900/60"
+                  : "bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-800 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"}
                 disabled:opacity-50 disabled:cursor-not-allowed
               `}
             >
@@ -1159,14 +1170,14 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
             </button>
           ) : (
             <div className="flex items-center gap-2">
-              <span className="text-[9px] text-slate-400 font-semibold tracking-wider uppercase border border-slate-200 rounded-xl px-2.5 py-1">
+              <span className="text-[9px] text-slate-500 dark:text-slate-400 font-semibold tracking-wider uppercase bg-slate-100/50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 rounded-xl px-2.5 py-1">
                 ☁️ Cloud Only (No Local DiipMynd)
               </span>
               <a
                 href="https://github.com/willstanelson/DiipMynd/releases/latest"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="px-3 py-1.5 rounded-xl text-[10px] font-bold tracking-wider uppercase bg-indigo-50 text-indigo-600 border border-indigo-100 hover:bg-indigo-100 transition-all cursor-pointer"
+                className="px-3 py-1.5 rounded-xl text-[10px] font-bold tracking-wider uppercase bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-900/50 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-all cursor-pointer"
                 title="Download DiipMynd local GPU engine installer"
               >
                 📥 Download Desktop App
@@ -1201,7 +1212,7 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
       <div className="grid grid-cols-1 md:grid-cols-12 gap-6 w-full items-start">
         {/* Left Column: Video Area, Original Camera, & Errors */}
         <div className="md:col-span-7 flex flex-col gap-4 w-full">
-          <div className="relative w-full aspect-video rounded-2xl overflow-hidden bg-slate-100 border border-slate-200 shadow-md">
+          <div className="relative w-full aspect-video rounded-2xl overflow-hidden bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-md transition-colors duration-200">
             {/* Remote (AI-transformed) video — fills the container */}
             <video
               ref={remoteVideoRef}
@@ -1218,7 +1229,7 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
 
             {/* Loading overlay */}
             {isLoading && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 z-10 bg-slate-50/50 backdrop-blur-sm">
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 z-10 bg-slate-50/50 dark:bg-slate-950/50 backdrop-blur-sm transition-colors duration-200">
                 <div className="relative w-20 h-20">
                   <div className="absolute inset-0 rounded-full border-2 border-indigo-500/30 animate-ping" />
                   <div className="absolute inset-2 rounded-full border-2 border-teal-400/40 animate-ping animation-delay-200" />
@@ -1227,7 +1238,7 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
                     <div className="w-3 h-3 rounded-full bg-indigo-500 animate-pulse" />
                   </div>
                 </div>
-                <p className="text-sm text-slate-600 font-medium tracking-wide animate-pulse">
+                <p className="text-sm text-slate-600 dark:text-slate-300 font-medium tracking-wide animate-pulse">
                   {connectionState === "requesting-token" && "Authenticating…"}
                   {connectionState === "initializing-camera" && "Starting camera…"}
                   {connectionState === "connecting" && "Establishing WebRTC connection…"}
@@ -1238,27 +1249,27 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
 
             {/* Idle / disconnected placeholder */}
             {(connectionState === "idle" || connectionState === "disconnected") && !error && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 z-10 bg-slate-50/40">
-                <div className="w-16 h-16 rounded-full bg-indigo-50 flex items-center justify-center border border-indigo-100 shadow-sm">
-                  <svg className="w-7 h-7 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 z-10 bg-slate-50/40 dark:bg-slate-950/40 transition-colors duration-200">
+                <div className="w-16 h-16 rounded-full bg-indigo-55 dark:bg-indigo-950/40 bg-indigo-50 flex items-center justify-center border border-indigo-100 dark:border-indigo-900/50 shadow-sm">
+                  <svg className="w-7 h-7 text-indigo-400 dark:text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 10.5l4.72-4.72a.75.75 0 011.28.53v11.38a.75.75 0 01-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 002.25-2.25v-9a2.25 2.25 0 00-2.25-2.25h-9A2.25 2.25 0 002.25 7.5v9a2.25 2.25 0 002.25 2.25z" />
                   </svg>
                 </div>
-                <p className="text-sm text-slate-400 font-medium">Press Start to begin your transformation</p>
+                <p className="text-sm text-slate-400 dark:text-slate-500 font-medium">Press Start to begin your transformation</p>
               </div>
             )}
 
             {/* Pop-out placeholder */}
             {isPoppedOut && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 z-10 bg-white/95 backdrop-blur-sm">
-                <div className="w-14 h-14 rounded-full bg-indigo-50 flex items-center justify-center border border-indigo-100 shadow-sm animate-pulse">
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 z-10 bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm transition-colors duration-200">
+                <div className="w-14 h-14 rounded-full bg-indigo-50 dark:bg-indigo-950/40 flex items-center justify-center border border-indigo-100 dark:border-indigo-900/50 shadow-sm animate-pulse">
                   <svg className="w-6 h-6 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
                   </svg>
                 </div>
                 <div className="text-center">
-                  <p className="text-sm text-slate-800 font-bold">Avatar Popped Out</p>
-                  <p className="text-xs text-slate-500 mt-1">AI stream is active in a floating picture-in-picture window.</p>
+                  <p className="text-sm text-slate-800 dark:text-slate-200 font-bold">Avatar Popped Out</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">AI stream is active in a floating picture-in-picture window.</p>
                 </div>
                 <button
                   onClick={handlePopOut}
@@ -1273,7 +1284,7 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
             {isConnected && !isPoppedOut && isPiPSupported && (
               <button
                 onClick={handlePopOut}
-                className="absolute top-4 right-4 p-2 rounded-xl bg-white/80 hover:bg-white text-slate-600 hover:text-slate-800 border border-slate-200 backdrop-blur-sm active:scale-95 transition-all z-20 cursor-pointer shadow-sm"
+                className="absolute top-4 right-4 p-2 rounded-xl bg-white/80 dark:bg-slate-900/80 hover:bg-white dark:hover:bg-slate-855 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-455 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 border border-slate-200 dark:border-slate-800 backdrop-blur-sm active:scale-95 transition-all z-20 cursor-pointer shadow-sm"
                 title="Pop out video (Picture-in-Picture)"
               >
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -1288,8 +1299,8 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
 
           {/* ── Original Camera Card (Separated from AI Video) ─────────── */}
           {hasLocalStream && (
-            <div className="flex items-center gap-4 p-3.5 rounded-2xl bg-white border border-slate-200 shadow-sm">
-              <div className="relative w-36 aspect-video rounded-lg overflow-hidden border border-slate-200 bg-slate-50 shadow-inner flex-shrink-0">
+            <div className="flex items-center gap-4 p-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm transition-colors duration-200">
+              <div className="relative w-36 aspect-video rounded-lg overflow-hidden border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 shadow-inner flex-shrink-0 transition-colors duration-200">
                 <video
                   ref={localVideoRef}
                   id="video-local"
@@ -1301,8 +1312,8 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
                 />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-xs text-slate-800 font-bold tracking-wide">Your Camera Feed</p>
-                <p className="text-[10px] text-slate-400 mt-0.5 truncate md:normal-case leading-relaxed">
+                <p className="text-xs text-slate-800 dark:text-slate-200 font-bold tracking-wide">Your Camera Feed</p>
+                <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5 truncate md:normal-case leading-relaxed">
                   This original camera view is separated. Only the AI feed above can be popped out.
                 </p>
               </div>
@@ -1311,15 +1322,15 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
 
           {/* ── Error Display ───────────────────────────────────────────── */}
           {error && (
-            <div className="w-full p-4 rounded-xl bg-rose-50 border border-rose-100 shadow-sm">
+            <div className="w-full p-4 rounded-xl bg-rose-50 dark:bg-rose-955 dark:bg-rose-950/30 border border-rose-100 dark:border-rose-900/40 shadow-sm transition-colors duration-200">
               <div className="flex items-start gap-3">
-                <div className="mt-0.5 w-5 h-5 rounded-full bg-rose-100 flex items-center justify-center flex-shrink-0">
-                  <span className="text-rose-600 text-xs font-extrabold">!</span>
+                <div className="mt-0.5 w-5 h-5 rounded-full bg-rose-100 dark:bg-rose-900/50 flex items-center justify-center flex-shrink-0">
+                  <span className="text-rose-600 dark:text-rose-300 text-xs font-extrabold">!</span>
                 </div>
                 <div className="flex-1">
-                  <p className="text-sm text-rose-800 font-bold">{error.message}</p>
+                  <p className="text-sm text-rose-800 dark:text-rose-200 font-bold">{error.message}</p>
                   {error.code === "CAMERA_DENIED" && (
-                    <p className="text-xs text-rose-600/70 mt-1 leading-relaxed">
+                    <p className="text-xs text-rose-600/70 dark:text-rose-400/60 mt-1 leading-relaxed">
                       Please allow camera access in your browser settings and try again.
                     </p>
                   )}
@@ -1335,7 +1346,7 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
                   )}
                   <button
                     onClick={handleRetry}
-                    className="px-3 py-1.5 text-xs font-bold text-rose-700 bg-rose-100 hover:bg-rose-200 rounded-lg border border-rose-200 transition-colors cursor-pointer"
+                    className="px-3 py-1.5 text-xs font-bold text-rose-700 dark:text-rose-300 bg-rose-100 dark:bg-rose-950 hover:bg-rose-200 dark:hover:bg-rose-900 rounded-lg border border-rose-200 dark:border-rose-800 transition-colors cursor-pointer"
                   >
                     Retry
                   </button>
@@ -1346,11 +1357,11 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
         </div>
 
         {/* Right Column: Controls Panel */}
-        <div className="md:col-span-5 w-full flex flex-col gap-4 p-5 rounded-2xl bg-white border border-slate-200 shadow-sm">
+        <div className="md:col-span-5 w-full flex flex-col gap-4 p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm transition-colors duration-200">
           {/* ── Provider Selector (Smart Router) ─────────────────────── */}
           {!useLocalMode && (
             <div className="flex flex-col gap-2">
-              <label className="text-[10px] text-slate-500 font-extrabold tracking-widest uppercase">
+              <label className="text-[10px] text-slate-500 dark:text-slate-400 font-extrabold tracking-widest uppercase">
                 AI Provider
               </label>
               <div className="flex items-center gap-1.5">
@@ -1364,11 +1375,11 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
                       transition-all duration-200 cursor-pointer
                       ${providerPreference === pref
                         ? pref === "auto"
-                          ? "bg-indigo-50 text-indigo-700 border border-indigo-200 shadow-sm font-extrabold"
+                          ? "bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-900/50 shadow-sm font-extrabold"
                           : pref === "decart"
-                            ? "bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-sm font-extrabold"
-                            : "bg-amber-50 text-amber-700 border border-amber-200 shadow-sm font-extrabold"
-                        : "bg-slate-50 text-slate-400 border border-slate-200 hover:bg-slate-100 hover:text-slate-600"
+                            ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900/50 shadow-sm font-extrabold"
+                            : "bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-900/50 shadow-sm font-extrabold"
+                        : "bg-slate-50 dark:bg-slate-950 text-slate-400 dark:text-slate-500 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-900 hover:text-slate-600 dark:hover:text-slate-300"
                       }
                       disabled:opacity-40 disabled:cursor-not-allowed
                     `}
@@ -1378,7 +1389,7 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
                 ))}
               </div>
               {providerPreference === "auto" && !isSessionActive && (
-                <p className="text-[9px] text-slate-400 font-medium leading-relaxed">
+                <p className="text-[9px] text-slate-400 dark:text-slate-500 font-medium leading-relaxed">
                   Smart Router will probe latency and pick the fastest provider.
                 </p>
               )}
@@ -1406,7 +1417,7 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
                   onClick={startSession}
                   className="
                     flex-1 py-3 rounded-xl font-bold text-sm tracking-wide
-                    bg-indigo-600 text-white shadow-md shadow-indigo-600/10
+                    bg-indigo-600 text-white shadow-md shadow-indigo-600/10 dark:shadow-none
                     hover:shadow-lg hover:shadow-indigo-600/15 hover:bg-indigo-500
                     active:scale-[0.98] cursor-pointer
                     transition-all duration-200
@@ -1419,8 +1430,8 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
                   className={`
                     p-3 rounded-xl border font-semibold text-sm transition-all duration-200 active:scale-[0.98] cursor-pointer
                     ${isMicEnabled
-                      ? "bg-indigo-50 border-indigo-200 text-indigo-600 hover:bg-indigo-100"
-                      : "bg-slate-50 border-slate-200 text-slate-400 hover:bg-slate-100 hover:text-slate-600"}
+                      ? "bg-indigo-50 dark:bg-indigo-950/40 border-indigo-200 dark:border-indigo-900/50 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900"
+                      : "bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-400 dark:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-855 dark:hover:bg-slate-900 hover:text-slate-600 dark:hover:text-slate-400"}
                   `}
                   title={isMicEnabled ? "Microphone Enabled" : "Microphone Disabled"}
                 >
@@ -1436,8 +1447,8 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
                   onClick={handleStop}
                   className="
                     flex-1 py-3 rounded-xl font-bold text-sm tracking-wide
-                    bg-slate-100 border border-slate-200 text-slate-700
-                    hover:bg-slate-200 hover:text-slate-900 hover:border-slate-300
+                    bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300
+                    hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-slate-100
                     active:scale-[0.98] cursor-pointer
                     transition-all duration-200
                   "
@@ -1450,8 +1461,8 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
                     className={`
                       p-3 rounded-xl border font-semibold text-sm transition-all duration-200 active:scale-[0.98] cursor-pointer
                       ${!isMicMuted
-                        ? "bg-indigo-50 border-indigo-200 text-indigo-600 hover:bg-indigo-100"
-                        : "bg-rose-50 border-rose-200 text-rose-600 hover:bg-rose-100"}
+                        ? "bg-indigo-50 dark:bg-indigo-950/40 border-indigo-200 dark:border-indigo-900/50 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900"
+                        : "bg-rose-50 dark:bg-rose-950/30 border-rose-200 dark:border-rose-900/40 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/50"}
                     `}
                     title={isMicMuted ? "Unmute Mic" : "Mute Mic"}
                   >

@@ -6,13 +6,15 @@ import { SafeUser } from "@/lib/auth";
 
 interface AuthScreenProps {
   onAuthSuccess: (user: SafeUser) => void;
+  theme: "light" | "dark";
+  toggleTheme: () => void;
 }
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-export default function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
+export default function AuthScreen({ onAuthSuccess, theme, toggleTheme }: AuthScreenProps) {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -88,21 +90,30 @@ export default function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
   };
 
   return (
-    <div className="w-full max-w-md p-8 rounded-3xl bg-white border border-slate-200 shadow-xl flex flex-col items-center">
+    <div className="relative w-full max-w-md p-8 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl dark:shadow-slate-950/40 flex flex-col items-center transition-colors duration-200">
+      {/* Theme Toggle in Top Right of the card */}
+      <button
+        onClick={toggleTheme}
+        className="absolute top-4 right-4 p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+        title={theme === "light" ? "Switch to Dark Mode" : "Switch to Light Mode"}
+      >
+        {theme === "light" ? "🌙" : "☀️"}
+      </button>
+
       {/* Title */}
       <div className="text-center mb-8 w-full">
-        <h1 className="text-3xl font-extrabold tracking-tight text-slate-900">
+        <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-slate-100">
           DiipMynd
         </h1>
-        <p className="text-sm text-slate-500 mt-2">
+        <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">
           {isLogin ? "Log in to your account" : "Create a new account"}
         </p>
       </div>
 
       {/* Error Message */}
       {error && (
-        <div className="w-full p-4 mb-6 rounded-xl bg-rose-50 border border-rose-100 text-center animate-shake">
-          <p className="text-xs text-rose-600 font-medium">{error}</p>
+        <div className="w-full p-4 mb-6 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-100 dark:border-rose-900/40 text-center animate-shake">
+          <p className="text-xs text-rose-600 dark:text-rose-400 font-medium">{error}</p>
         </div>
       )}
 
@@ -112,7 +123,7 @@ export default function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
           type="button"
           onClick={() => handleOAuthSignIn("google")}
           disabled={loading}
-          className="w-full py-3 rounded-xl font-bold text-xs tracking-wide border border-slate-200 hover:border-slate-300 bg-white hover:bg-slate-50 text-slate-700 flex items-center justify-center gap-2 cursor-pointer transition-all duration-200"
+          className="w-full py-3 rounded-xl font-bold text-xs tracking-wide border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 flex items-center justify-center gap-2 cursor-pointer transition-all duration-200"
         >
           <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
             <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
@@ -126,7 +137,7 @@ export default function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
           type="button"
           onClick={() => handleOAuthSignIn("apple")}
           disabled={loading}
-          className="w-full py-3 rounded-xl font-bold text-xs tracking-wide border border-slate-200 hover:border-slate-300 bg-white hover:bg-slate-50 text-slate-700 flex items-center justify-center gap-2 cursor-pointer transition-all duration-200"
+          className="w-full py-3 rounded-xl font-bold text-xs tracking-wide border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 flex items-center justify-center gap-2 cursor-pointer transition-all duration-200"
         >
           <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24">
             <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M15.97 4.17c.66-.81 1.11-1.93.99-3.06-.96.04-2.13.64-2.82 1.45-.6.69-1.12 1.83-.98 2.94.12.02.12.02.24.02.84 0 1.91-.54 2.57-1.35z"/>
@@ -136,11 +147,11 @@ export default function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
 
         {/* Divider */}
         <div className="flex items-center my-3 w-full">
-          <div className="flex-1 h-[1px] bg-slate-200" />
-          <span className="px-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest flex-shrink-0">
+          <div className="flex-1 h-[1px] bg-slate-200 dark:bg-slate-800" />
+          <span className="px-3 text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest flex-shrink-0">
             or use email & password
           </span>
-          <div className="flex-1 h-[1px] bg-slate-200" />
+          <div className="flex-1 h-[1px] bg-slate-200 dark:bg-slate-800" />
         </div>
       </div>
 
@@ -148,7 +159,7 @@ export default function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
       <form onSubmit={handleSubmit} className="w-full flex flex-col gap-5">
         {/* Email Field */}
         <div className="flex flex-col gap-2">
-          <label className="text-xs font-semibold tracking-wider text-slate-500 uppercase">
+          <label className="text-xs font-semibold tracking-wider text-slate-500 dark:text-slate-400 uppercase">
             Email Address
           </label>
           <input
@@ -157,13 +168,13 @@ export default function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
             onChange={(e) => setEmail(e.target.value)}
             disabled={loading}
             placeholder="willstanelson@gmail.com"
-            className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 placeholder-slate-400 focus:border-indigo-600 focus:bg-white focus:outline-none transition-all text-sm"
+            className="w-full px-4 py-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-600 focus:border-indigo-600 dark:focus:border-indigo-500 focus:bg-white dark:focus:bg-slate-900 focus:outline-none transition-all text-sm"
           />
         </div>
 
         {/* Password Field */}
         <div className="flex flex-col gap-2">
-          <label className="text-xs font-semibold tracking-wider text-slate-500 uppercase">
+          <label className="text-xs font-semibold tracking-wider text-slate-500 dark:text-slate-400 uppercase">
             Password
           </label>
           <input
@@ -172,7 +183,7 @@ export default function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
             onChange={(e) => setPassword(e.target.value)}
             disabled={loading}
             placeholder="••••••••"
-            className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 placeholder-slate-400 focus:border-indigo-600 focus:bg-white focus:outline-none transition-all text-sm"
+            className="w-full px-4 py-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-600 focus:border-indigo-600 dark:focus:border-indigo-500 focus:bg-white dark:focus:bg-slate-900 focus:outline-none transition-all text-sm"
           />
         </div>
 
@@ -203,7 +214,7 @@ export default function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
 
       {/* Switch mode */}
       <div className="mt-8 text-center text-xs">
-        <span className="text-slate-500">
+        <span className="text-slate-500 dark:text-slate-400">
           {isLogin ? "Don't have an account? " : "Already have an account? "}
         </span>
         <button
@@ -213,7 +224,7 @@ export default function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
             setError(null);
           }}
           disabled={loading}
-          className="text-indigo-600 hover:text-indigo-500 font-semibold underline cursor-pointer transition-colors"
+          className="text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-350 font-semibold underline cursor-pointer transition-colors"
         >
           {isLogin ? "Sign Up" : "Log In"}
         </button>

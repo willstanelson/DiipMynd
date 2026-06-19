@@ -77,13 +77,13 @@ export default function PromptInput({ onPromptChange, disabled = false }: Prompt
           placeholder="Describe a transformation… e.g. &quot;turn me into a superhero&quot;"
           className="
             w-full px-4 py-3 rounded-xl
-            bg-slate-50 border border-slate-200
-            text-slate-900 placeholder-slate-400
+            bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800
+            text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-600
             text-sm font-medium tracking-wide
             outline-none
             transition-all duration-300
-            focus:border-indigo-550 focus:border-indigo-650 focus:border-indigo-600 focus:ring-2 focus:ring-indigo-600/15
-            hover:border-slate-300
+            focus:border-indigo-600 dark:focus:border-indigo-500 focus:ring-2 focus:ring-indigo-600/15
+            hover:border-slate-300 dark:hover:border-slate-700
             disabled:opacity-40 disabled:cursor-not-allowed
           "
         />
@@ -106,8 +106,8 @@ export default function PromptInput({ onPromptChange, disabled = false }: Prompt
               cursor-pointer
               ${
                 activePreset === preset.id
-                  ? "bg-indigo-50 border-indigo-300 text-indigo-755 text-indigo-700 shadow-sm"
-                  : "bg-white border-slate-200 text-slate-655 text-slate-600 hover:bg-slate-50 hover:border-slate-300 hover:text-slate-800"
+                  ? "bg-indigo-50 dark:bg-indigo-950/40 border-indigo-300 dark:border-indigo-900/60 text-indigo-700 dark:text-indigo-455 dark:text-indigo-400 shadow-sm"
+                  : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 hover:border-slate-300 dark:hover:border-slate-700 hover:text-slate-800 dark:hover:text-slate-205 dark:hover:text-slate-205 dark:hover:text-slate-200"
               }
             `}
           >

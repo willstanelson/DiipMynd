@@ -5,6 +5,8 @@
 
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* ── CSS Custom Properties (Design Tokens) ──────────────────────────────── */
 :root {
   --bg-primary: #f8fafc; /* Slate 50 */
@@ -19,9 +21,22 @@
   --border-color: #e2e8f0; /* Slate 200 */
 }
 
+.dark {
+  --bg-primary: #0b0f19; /* Cool Dark Blue/Slate */
+  --bg-surface: #121826; /* Card Dark Surface */
+  --accent-violet: #818cf8; /* Indigo 400 */
+  --accent-cyan: #2dd4bf; /* Teal 400 */
+  --accent-fuchsia: #f472b6; /* Pink 400 */
+  --glow-violet: rgba(129, 140, 248, 0.06);
+  --glow-cyan: rgba(45, 212, 191, 0.04);
+  --text-primary: #f8fafc; /* Slate 50 */
+  --text-secondary: #94a3b8; /* Slate 400 */
+  --border-color: #1e293b; /* Slate 800 */
+}
+
 /* ── Base ────────────────────────────────────────────────────────────────── */
 html {
-  color-scheme: light;
+  color-scheme: light dark;
 }
 
 body {

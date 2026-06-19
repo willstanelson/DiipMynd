@@ -13,6 +13,36 @@ import { SafeUser } from "@/lib/auth";
 export default function Home() {
   const [user, setUser] = useState<SafeUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const [theme, setTheme] = useState<"light" | "dark">("light");
+
+  // Initialize theme from localStorage or system preference
+  useEffect(() => {
+    const savedTheme = localStorage.getItem("theme") as "light" | "dark" | null;
+    const systemPrefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    const initialTheme = savedTheme || (systemPrefersDark ? "dark" : "light");
+    
+    setTheme(initialTheme);
+    if (initialTheme === "dark") {
+      document.documentElement.classList.add("dark");
+      document.documentElement.classList.remove("light");
+    } else {
+      document.documentElement.classList.add("light");
+      document.documentElement.classList.remove("dark");
+    }
+  }, []);
+
+  const toggleTheme = () => {
+    const nextTheme = theme === "light" ? "dark" : "light";
+    setTheme(nextTheme);
+    localStorage.setItem("theme", nextTheme);
+    if (nextTheme === "dark") {
+      document.documentElement.classList.add("dark");
+      document.documentElement.classList.remove("light");
+    } else {
+      document.documentElement.classList.add("light");
+      document.documentElement.classList.remove("dark");
+    }
+  };
 
   // Check if session exists on load
   const checkSession = async () => {
@@ -59,10 +89,10 @@ export default function Home() {
 
   if (loading) {
     return (
-      <main className="relative z-10 flex min-h-dvh flex-col items-center justify-center p-6 bg-slate-50">
+      <main className="relative z-10 flex min-h-dvh flex-col items-center justify-center p-6 bg-slate-50 dark:bg-slate-950 transition-colors duration-200">
         <div className="flex flex-col items-center gap-4">
           <div className="w-10 h-10 rounded-full border-2 border-indigo-600/20 border-t-indigo-600 animate-spin" />
-          <p className="text-xs text-slate-500 tracking-wider uppercase font-semibold">
+          <p className="text-xs text-slate-500 dark:text-slate-400 tracking-wider uppercase font-semibold">
             Connecting to DiipMynd...
           </p>
         </div>
@@ -71,20 +101,26 @@ export default function Home() {
   }
 
   return (
-    <main className="relative z-10 flex min-h-dvh flex-col items-center justify-center p-6 md:p-10">
+    <main className="relative z-10 flex min-h-dvh flex-col items-center justify-center p-6 md:p-10 transition-colors duration-200">
       {user ? (
         <LiveAvatarStream
           user={user}
           onLogout={handleLogout}
           onBalanceUpdated={refreshUserBalance}
+          theme={theme}
+          toggleTheme={toggleTheme}
         />
       ) : (
-        <AuthScreen onAuthSuccess={setUser} />
+        <AuthScreen 
+          onAuthSuccess={setUser}
+          theme={theme}
+          toggleTheme={toggleTheme}
+        />
       )}
 
       {/* Footer tagline */}
       <footer className="mt-8 text-center">
-        <p className="text-xs text-slate-400 tracking-widest uppercase">
+        <p className="text-xs text-slate-400 dark:text-slate-500 tracking-widest uppercase">
           Powered by Decart + Fal.ai · Smart Router · WebRTC · Next.js
         </p>
       </footer>
