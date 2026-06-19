@@ -202,40 +202,40 @@ export default function AdminPanel({ onClose, onBalanceUpdated, currentUserId }:
   const pendingRequestsCount = requests.length;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md p-4">
-      <div className="w-full max-w-4xl h-[80vh] flex flex-col md:flex-row bg-slate-900 border border-white/10 rounded-3xl overflow-hidden shadow-2xl animate-scaleUp">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/35 backdrop-blur-md p-4">
+      <div className="w-full max-w-4xl h-[80vh] flex flex-col md:flex-row bg-white border border-slate-200 rounded-3xl overflow-hidden shadow-2xl animate-scaleUp">
         {/* Left Side: Users list / Requests table and tabs */}
-        <div className="flex-1 p-6 flex flex-col border-b md:border-b-0 md:border-r border-white/10 overflow-hidden">
+        <div className="flex-1 p-6 flex flex-col border-b md:border-b-0 md:border-r border-slate-100 overflow-hidden">
           
           {/* Header row */}
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-bold text-white flex items-center gap-2">
+            <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
               <span>🛡️</span> Developer Admin Panel
             </h2>
-            <div className="flex gap-2 text-[10px] text-white/40 uppercase tracking-wider font-semibold">
-              <span className="bg-white/5 px-2 py-1 rounded">Users: {totalUsers}</span>
-              <span className="bg-white/5 px-2 py-1 rounded">Total Credits: {totalCredits}</span>
+            <div className="flex gap-2 text-[10px] text-slate-500 uppercase tracking-wider font-semibold">
+              <span className="bg-slate-100 px-2 py-1 rounded">Users: {totalUsers}</span>
+              <span className="bg-slate-100 px-2 py-1 rounded">Total Credits: {totalCredits}</span>
             </div>
           </div>
 
           {/* Navigation Tabs */}
-          <div className="flex gap-2 mb-4 border-b border-white/5 pb-3">
+          <div className="flex gap-2 mb-4 border-b border-slate-100 pb-3">
             <button
               onClick={() => setActiveTab("users")}
-              className={`px-3.5 py-2 rounded-xl text-xs font-semibold cursor-pointer transition-colors ${
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold cursor-pointer transition-colors ${
                 activeTab === "users"
-                  ? "bg-violet-600 text-white"
-                  : "bg-white/5 text-white/60 hover:bg-white/10"
+                  ? "bg-indigo-655 bg-indigo-600 text-white shadow-sm"
+                  : "bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-150"
               }`}
             >
               Users List
             </button>
             <button
               onClick={() => setActiveTab("requests")}
-              className={`px-3.5 py-2 rounded-xl text-xs font-semibold cursor-pointer transition-all flex items-center gap-2 ${
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold cursor-pointer transition-all flex items-center gap-2 ${
                 activeTab === "requests"
-                  ? "bg-violet-600 text-white"
-                  : "bg-white/5 text-white/60 hover:bg-white/10"
+                  ? "bg-indigo-600 text-white shadow-sm"
+                  : "bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-150"
               }`}
             >
               Pending Requests
@@ -257,31 +257,31 @@ export default function AdminPanel({ onClose, onBalanceUpdated, currentUserId }:
                   placeholder="Search users by email..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder-white/20 text-xs focus:outline-none focus:border-violet-500 transition-colors"
+                  className="w-full px-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 placeholder-slate-400 text-xs focus:outline-none focus:border-indigo-500 transition-colors"
                 />
               </div>
 
               {/* Users Table */}
               <div className="flex-1 overflow-y-auto pr-1">
                 {loading ? (
-                  <div className="h-full flex items-center justify-center text-xs text-white/40">
-                    <div className="w-5 h-5 rounded-full border-2 border-violet-500/20 border-t-violet-400 animate-spin mr-2" />
+                  <div className="h-full flex items-center justify-center text-xs text-slate-400">
+                    <div className="w-5 h-5 rounded-full border-2 border-indigo-650/20 border-t-indigo-600 animate-spin mr-2" />
                     Loading users...
                   </div>
                 ) : filteredUsers.length === 0 ? (
-                  <div className="h-full flex items-center justify-center text-xs text-white/40">
+                  <div className="h-full flex items-center justify-center text-xs text-slate-400">
                     No users found.
                   </div>
                 ) : (
-                  <table className="w-full text-left text-xs text-white/70 text-right">
+                  <table className="w-full text-left text-xs text-slate-700">
                     <thead>
-                      <tr className="border-b border-white/5 text-white/30 uppercase text-[9px] tracking-widest text-left">
+                      <tr className="border-b border-slate-100 text-slate-400 uppercase text-[9px] tracking-widest text-left">
                         <th className="py-2.5 text-left">Email</th>
                         <th className="py-2.5 text-right">Credits</th>
                         <th className="py-2.5 text-right">Role</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-white/[0.03]">
+                    <tbody className="divide-y divide-slate-100">
                       {filteredUsers.map((user) => (
                         <tr
                           key={user.id}
@@ -289,19 +289,19 @@ export default function AdminPanel({ onClose, onBalanceUpdated, currentUserId }:
                             setSelectedUser(user);
                             setFundSuccess(false);
                           }}
-                          className={`hover:bg-white/[0.02] cursor-pointer transition-colors ${
-                            selectedUser?.id === user.id ? "bg-violet-500/10 text-white font-medium" : ""
+                          className={`hover:bg-slate-50 cursor-pointer transition-colors ${
+                            selectedUser?.id === user.id ? "bg-indigo-50 text-slate-950 font-bold" : ""
                           }`}
                         >
                           <td className="py-3 pr-2 text-left truncate max-w-[150px]">{user.email}</td>
                           <td className="py-3 text-right tabular-nums">{user.credits}</td>
                           <td className="py-3 text-right font-mono text-[9px]">
                             {user.isAdmin ? (
-                              <span className="text-violet-400 bg-violet-400/10 px-1.5 py-0.5 rounded">
+                              <span className="text-indigo-700 bg-indigo-100 px-1.5 py-0.5 rounded font-bold">
                                 ADMIN
                               </span>
                             ) : (
-                              <span className="text-white/30">USER</span>
+                              <span className="text-slate-400">USER</span>
                             )}
                           </td>
                         </tr>
@@ -318,18 +318,18 @@ export default function AdminPanel({ onClose, onBalanceUpdated, currentUserId }:
             <div className="flex-1 flex flex-col overflow-hidden">
               <div className="flex-1 overflow-y-auto pr-1">
                 {loadingRequests ? (
-                  <div className="h-full flex items-center justify-center text-xs text-white/40">
-                    <div className="w-5 h-5 rounded-full border-2 border-violet-500/20 border-t-violet-400 animate-spin mr-2" />
+                  <div className="h-full flex items-center justify-center text-xs text-slate-400">
+                    <div className="w-5 h-5 rounded-full border-2 border-indigo-650/20 border-t-indigo-600 animate-spin mr-2" />
                     Loading credit requests...
                   </div>
                 ) : requests.length === 0 ? (
-                  <div className="h-full flex items-center justify-center text-xs text-white/40">
+                  <div className="h-full flex items-center justify-center text-xs text-slate-400">
                     No pending credit requests at the moment.
                   </div>
                 ) : (
-                  <table className="w-full text-left text-xs text-white/70">
+                  <table className="w-full text-left text-xs text-slate-700">
                     <thead>
-                      <tr className="border-b border-white/5 text-white/30 uppercase text-[9px] tracking-widest">
+                      <tr className="border-b border-slate-100 text-slate-400 uppercase text-[9px] tracking-widest">
                         <th className="py-2.5">Email</th>
                         <th className="py-2.5">Network</th>
                         <th className="py-2.5">Tx Hash (Explorer)</th>
@@ -337,15 +337,15 @@ export default function AdminPanel({ onClose, onBalanceUpdated, currentUserId }:
                         <th className="py-2.5 text-right">Action</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-white/[0.03]">
+                    <tbody className="divide-y divide-slate-100">
                       {requests.map((req) => {
                         const link = getExplorerLink(req.paymentMethod, req.txHash);
                         return (
-                          <tr key={req.id} className="hover:bg-white/[0.02] transition-colors">
+                          <tr key={req.id} className="hover:bg-slate-50 transition-colors">
                             <td className="py-3 pr-2 truncate max-w-[120px]" title={req.email}>
                               {req.email}
                             </td>
-                            <td className="py-3 text-[10px] font-semibold text-white/60">
+                            <td className="py-3 text-[10px] font-semibold text-slate-600">
                               {req.paymentMethod || "N/A"}
                             </td>
                             <td className="py-3 pr-2 truncate max-w-[160px]">
@@ -354,16 +354,16 @@ export default function AdminPanel({ onClose, onBalanceUpdated, currentUserId }:
                                   href={link}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="text-violet-400 hover:text-violet-300 underline font-mono text-[10px] select-all cursor-pointer"
+                                  className="text-indigo-600 hover:text-indigo-500 underline font-mono text-[10px] select-all cursor-pointer"
                                   title="View on Block Explorer"
                                 >
                                   {req.txHash}
                                 </a>
                               ) : (
-                                <span className="font-mono text-[10px] text-white/30">{req.txHash || "N/A"}</span>
+                                <span className="font-mono text-[10px] text-slate-400">{req.txHash || "N/A"}</span>
                               )}
                             </td>
-                            <td className="py-3 text-right tabular-nums font-semibold text-emerald-400">
+                            <td className="py-3 text-right tabular-nums font-semibold text-emerald-600">
                               +{req.amount}
                             </td>
                             <td className="py-2 text-right">
@@ -372,7 +372,7 @@ export default function AdminPanel({ onClose, onBalanceUpdated, currentUserId }:
                                   e.stopPropagation();
                                   handleApproveRequest(req.id, req.userId, req.amount);
                                 }}
-                                className="px-2.5 py-1 text-[10px] bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg cursor-pointer transition-colors active:scale-95 shadow-md shadow-emerald-500/10"
+                                className="px-2.5 py-1 text-[10px] bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg cursor-pointer transition-colors active:scale-95 shadow-md shadow-emerald-550/10"
                               >
                                 Approve
                               </button>
@@ -390,30 +390,30 @@ export default function AdminPanel({ onClose, onBalanceUpdated, currentUserId }:
         </div>
 
         {/* Right Side: Account Funding / Control Form */}
-        <div className="w-full md:w-80 p-6 flex flex-col bg-white/[0.01] overflow-y-auto">
+        <div className="w-full md:w-80 p-6 flex flex-col bg-slate-50 overflow-y-auto">
           {selectedUser ? (
             <div className="flex-1 flex flex-col justify-between">
               <div>
-                <h3 className="text-sm font-bold text-white mb-1">Fund Account</h3>
-                <p className="text-xs text-white/40 break-all">{selectedUser.email}</p>
+                <h3 className="text-sm font-bold text-slate-800 mb-1">Fund Account</h3>
+                <p className="text-xs text-slate-500 break-all">{selectedUser.email}</p>
 
                 {/* Details list */}
-                <div className="my-6 p-4 rounded-2xl bg-white/[0.02] border border-white/5 text-xs flex flex-col gap-3">
+                <div className="my-6 p-4 rounded-2xl bg-white border border-slate-200 text-xs flex flex-col gap-3 shadow-sm">
                   <div className="flex justify-between">
-                    <span className="text-white/40">Current Credits:</span>
-                    <span className="text-white font-semibold tabular-nums">
+                    <span className="text-slate-500">Current Credits:</span>
+                    <span className="text-slate-800 font-bold tabular-nums">
                       {selectedUser.credits}
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-white/40">Admin Status:</span>
-                    <span className="text-white font-mono">
+                    <span className="text-slate-500">Admin Status:</span>
+                    <span className="text-slate-800 font-mono">
                       {selectedUser.isAdmin ? "Yes" : "No"}
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-white/40">Registered:</span>
-                    <span className="text-white/70">
+                    <span className="text-slate-500">Registered:</span>
+                    <span className="text-slate-700 font-medium">
                       {new Date(selectedUser.createdAt).toLocaleDateString()}
                     </span>
                   </div>
@@ -421,14 +421,14 @@ export default function AdminPanel({ onClose, onBalanceUpdated, currentUserId }:
 
                 {/* Error in panel */}
                 {error && (
-                  <div className="p-3 mb-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300">
+                  <div className="p-3 mb-4 rounded-xl bg-rose-50 border border-rose-100 text-xs text-rose-700">
                     {error}
                   </div>
                 )}
 
                 {/* Success alert */}
                 {fundSuccess && (
-                  <div className="p-3 mb-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-300">
+                  <div className="p-3 mb-4 rounded-xl bg-emerald-50 border border-emerald-100 text-xs text-emerald-700">
                     Credits updated successfully!
                   </div>
                 )}
@@ -436,7 +436,7 @@ export default function AdminPanel({ onClose, onBalanceUpdated, currentUserId }:
                 {/* Input form */}
                 <form onSubmit={handleFundCredits} className="flex flex-col gap-4">
                   <div className="flex flex-col gap-1.5">
-                    <label className="text-[10px] font-semibold text-white/40 uppercase tracking-wide">
+                    <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">
                       Amount (Positive to Add, Negative to Deduct)
                     </label>
                     <input
@@ -444,7 +444,7 @@ export default function AdminPanel({ onClose, onBalanceUpdated, currentUserId }:
                       value={fundAmount}
                       onChange={(e) => setFundAmount(parseInt(e.target.value) || 0)}
                       disabled={funding}
-                      className="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white focus:outline-none focus:border-violet-500 transition-colors text-sm font-semibold text-center"
+                      className="w-full px-4 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-900 focus:outline-none focus:border-indigo-500 transition-colors text-sm font-semibold text-center"
                     />
                   </div>
 
@@ -455,7 +455,7 @@ export default function AdminPanel({ onClose, onBalanceUpdated, currentUserId }:
                         key={amount}
                         type="button"
                         onClick={() => setFundAmount(amount)}
-                        className="py-2 text-[10px] font-semibold bg-white/5 hover:bg-white/10 rounded-lg text-white border border-white/5 active:scale-95 transition-all"
+                        className="py-2 text-[10px] font-bold bg-white hover:bg-slate-55 border border-slate-200 text-slate-700 active:scale-95 transition-all cursor-pointer rounded-lg"
                       >
                         +{amount}
                       </button>
@@ -465,7 +465,7 @@ export default function AdminPanel({ onClose, onBalanceUpdated, currentUserId }:
                   <button
                     type="submit"
                     disabled={funding}
-                    className="w-full mt-4 py-3 rounded-xl bg-violet-600 hover:bg-violet-500 text-white text-xs font-bold active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-2"
+                    className="w-full mt-4 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-2"
                   >
                     {funding ? (
                       <>
@@ -482,7 +482,7 @@ export default function AdminPanel({ onClose, onBalanceUpdated, currentUserId }:
               {/* Close Button inside controls */}
               <button
                 onClick={onClose}
-                className="mt-6 py-2.5 text-center text-xs font-semibold text-white/40 hover:text-white border border-white/10 rounded-xl hover:bg-white/5 active:scale-95 transition-all cursor-pointer"
+                className="mt-6 py-2.5 text-center text-xs font-semibold text-slate-500 hover:text-slate-700 border border-slate-200 rounded-xl hover:bg-slate-100 active:scale-95 transition-all cursor-pointer"
               >
                 Close Panel
               </button>
@@ -491,14 +491,14 @@ export default function AdminPanel({ onClose, onBalanceUpdated, currentUserId }:
             <div className="flex-1 flex flex-col justify-between items-center text-center p-4">
               <div className="my-auto flex flex-col items-center">
                 <span className="text-3xl mb-3">👈</span>
-                <p className="text-xs text-white/40 max-w-[180px]">
+                <p className="text-xs text-slate-500 max-w-[180px]">
                   Select a user from the Users List tab to top up their credit balance.
                 </p>
               </div>
 
               <button
                 onClick={onClose}
-                className="w-full py-2.5 text-center text-xs font-semibold text-white/40 hover:text-white border border-white/10 rounded-xl hover:bg-white/5 active:scale-95 transition-all cursor-pointer"
+                className="w-full py-2.5 text-center text-xs font-semibold text-slate-500 hover:text-slate-700 border border-slate-200 rounded-xl hover:bg-slate-100 active:scale-95 transition-all cursor-pointer"
               >
                 Close Panel
               </button>

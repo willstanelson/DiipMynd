@@ -1,35 +1,38 @@
 /* ============================================================================
    DiipMynd — Global Styles
-   Dark theme with glassmorphism, gradient accents, and micro-animations.
+   Premium minimalist light theme with soft shadows and clean boundaries.
    ============================================================================ */
 
 @import "tailwindcss";
 
 /* ── CSS Custom Properties (Design Tokens) ──────────────────────────────── */
 :root {
-  --bg-primary: #08090d;
-  --bg-surface: #0f1117;
-  --accent-violet: #8b5cf6;
-  --accent-cyan: #06b6d4;
-  --accent-fuchsia: #d946ef;
-  --glow-violet: rgba(139, 92, 246, 0.15);
-  --glow-cyan: rgba(6, 182, 212, 0.1);
+  --bg-primary: #f8fafc; /* Slate 50 */
+  --bg-surface: #ffffff; /* Pure White */
+  --accent-violet: #4f46e5; /* Indigo 600 */
+  --accent-cyan: #0d9488; /* Teal 600 */
+  --accent-fuchsia: #db2777; /* Pink 600 */
+  --glow-violet: rgba(79, 70, 229, 0.04);
+  --glow-cyan: rgba(13, 148, 136, 0.02);
+  --text-primary: #0f172a; /* Slate 900 */
+  --text-secondary: #475569; /* Slate 600 */
+  --border-color: #e2e8f0; /* Slate 200 */
 }
 
 /* ── Base ────────────────────────────────────────────────────────────────── */
 html {
-  color-scheme: dark;
+  color-scheme: light;
 }
 
 body {
   background: var(--bg-primary);
-  color: #e2e8f0;
+  color: var(--text-primary);
   font-family: "Inter", system-ui, -apple-system, sans-serif;
   min-height: 100dvh;
   overflow-x: hidden;
 }
 
-/* Ambient background gradient */
+/* Ambient soft background gradient */
 body::before {
   content: "";
   position: fixed;
@@ -79,7 +82,7 @@ body::before {
   background: linear-gradient(
     90deg,
     transparent 0%,
-    rgba(255, 255, 255, 0.04) 50%,
+    rgba(0, 0, 0, 0.02) 50%,
     transparent 100%
   );
   background-size: 200% 100%;
@@ -99,19 +102,17 @@ body::before {
   animation-delay: 400ms;
 }
 
-/* ── Glassmorphism ──────────────────────────────────────────────────────── */
+/* ── Card Styles ───────────────────────────────────────────────────────── */
 .glass {
-  background: rgba(255, 255, 255, 0.03);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.02), 0 1px 2px -1px rgba(0, 0, 0, 0.02);
 }
 
 .glass-strong {
-  background: rgba(255, 255, 255, 0.06);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.04), 0 4px 6px -4px rgba(0, 0, 0, 0.04);
 }
 
 /* ── Scrollbar ──────────────────────────────────────────────────────────── */
@@ -122,11 +123,11 @@ body::before {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.1);
   border-radius: 999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(0, 0, 0, 0.18);
 }
 
 /* ── Video mirror (for local preview) ───────────────────────────────────── */
