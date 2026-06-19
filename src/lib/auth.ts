@@ -7,6 +7,7 @@ export interface SafeUser {
   credits: number;
   isAdmin: boolean;
   createdAt: string;
+  isSuspended?: boolean;
 }
 
 /**
@@ -24,6 +25,12 @@ export async function getCurrentUser(): Promise<SafeUser | null> {
     // Authenticate the token with Supabase Auth
     const { data: { user }, error } = await supabase.auth.getUser(accessToken);
     if (error || !user) {
+      return null;
+    }
+
+    // Secure check: check if the user is suspended
+    if (user.app_metadata?.is_suspended === true) {
+      console.warn(`[auth] Access denied for suspended user: ${user.id}`);
       return null;
     }
 

@@ -20,6 +20,7 @@ export default function AuthScreen({ onAuthSuccess, theme, toggleTheme }: AuthSc
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [agree, setAgree] = useState(false);
 
   const handleOAuthSignIn = async (provider: "google" | "apple") => {
     setError(null);
@@ -49,6 +50,12 @@ export default function AuthScreen({ onAuthSuccess, theme, toggleTheme }: AuthSc
     const trimmedEmail = email.trim();
     if (!trimmedEmail || !password) {
       setError("Please fill in all fields.");
+      setLoading(false);
+      return;
+    }
+
+    if (!isLogin && !agree) {
+      setError("You must agree to the Content Policy to create an account.");
       setLoading(false);
       return;
     }
@@ -187,6 +194,23 @@ export default function AuthScreen({ onAuthSuccess, theme, toggleTheme }: AuthSc
           />
         </div>
 
+        {/* Content Warning & Disclaimer Checkbox (SignUp only) */}
+        {!isLogin && (
+          <div className="flex items-start gap-3 mt-1 px-1">
+            <input
+              type="checkbox"
+              id="disclaimer-consent"
+              checked={agree}
+              onChange={(e) => setAgree(e.target.checked)}
+              disabled={loading}
+              className="mt-1.5 h-4 w-4 rounded border-slate-350 dark:border-slate-700 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+            />
+            <label htmlFor="disclaimer-consent" className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed cursor-pointer select-none">
+              I agree that I will not upload reference images without consent, nor generate non-consensual deepfakes, impersonate others, or create abusive content. I understand that violating this policy will result in immediate termination of my account.
+            </label>
+          </div>
+        )}
+
         {/* Submit Button */}
         <button
           type="submit"
@@ -222,12 +246,19 @@ export default function AuthScreen({ onAuthSuccess, theme, toggleTheme }: AuthSc
           onClick={() => {
             setIsLogin(!isLogin);
             setError(null);
+            setAgree(false); // Reset agree state
           }}
           disabled={loading}
           className="text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-350 font-semibold underline cursor-pointer transition-colors"
         >
           {isLogin ? "Sign Up" : "Log In"}
         </button>
+      </div>
+
+      {/* Legal Footer Disclaimer Banner */}
+      <div className="mt-6 pt-4 border-t border-slate-150 dark:border-slate-800 text-[10px] text-slate-400 dark:text-slate-500 text-center max-w-[320px] leading-relaxed transition-colors duration-200">
+        <span className="font-bold text-slate-550 dark:text-slate-450 block mb-1">⚠️ Safety & Policy Warning</span>
+        This platform is built for legitimate presentation and content creation. Non-consensual deepfakes or impersonation are strictly banned and will result in instant account deactivation.
       </div>
     </div>
   );

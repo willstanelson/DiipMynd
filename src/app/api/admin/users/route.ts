@@ -25,6 +25,19 @@ export async function GET() {
       return NextResponse.json({ error: "Failed to fetch users list." }, { status: 500 });
     }
 
+    // Fetch all auth users to check for is_suspended flag in app_metadata
+    const suspensionMap = new Map<string, boolean>();
+    try {
+      const { data: authData, error: authError } = await supabaseAdmin.auth.admin.listUsers();
+      if (!authError && authData?.users) {
+        authData.users.forEach((u) => {
+          suspensionMap.set(u.id, !!u.app_metadata?.is_suspended);
+        });
+      }
+    } catch (authErr) {
+      console.error("[admin-users] Failed to fetch auth users metadata:", authErr);
+    }
+
     // Map profiles to match the SafeUser schema in frontend
     const safeUsers = (profiles || []).map((p) => ({
       id: p.id,
@@ -32,6 +45,7 @@ export async function GET() {
       credits: p.credits,
       isAdmin: p.is_admin,
       createdAt: p.created_at,
+      isSuspended: suspensionMap.get(p.id) || false,
     }));
 
     return NextResponse.json({ success: true, users: safeUsers });
@@ -56,10 +70,22 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { userId, amount } = body;
+    const { userId, amount, isSuspended } = body;
 
-    if (!userId || typeof amount !== "number") {
-      return NextResponse.json({ error: "userId and amount (number) are required." }, { status: 400 });
+    if (!userId) {
+      return NextResponse.json({ error: "userId is required." }, { status: 400 });
+    }
+
+    // If suspension status update is requested
+    if (typeof isSuspended === "boolean") {
+      const { error: authUpdateError } = await supabaseAdmin.auth.admin.updateUserById(
+        userId,
+        { app_metadata: { is_suspended: isSuspended } }
+      );
+      if (authUpdateError) {
+        console.error("[admin-users] Supabase auth update error:", authUpdateError.message);
+        return NextResponse.json({ error: "Failed to update user suspension status." }, { status: 500 });
+      }
     }
 
     // Fetch user's current profile
@@ -74,25 +100,35 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "User profile not found." }, { status: 404 });
     }
 
-    const newCredits = Math.max(0, profile.credits + amount);
+    let finalCredits = profile.credits;
 
-    // Update credits in Supabase
-    const { error: updateError } = await supabaseAdmin
-      .from("profiles")
-      .update({ credits: newCredits })
-      .eq("id", userId);
+    if (typeof amount === "number") {
+      const newCredits = Math.max(0, profile.credits + amount);
 
-    if (updateError) {
-      console.error("[admin-users] Supabase update error:", updateError.message);
-      return NextResponse.json({ error: "Failed to update user credits." }, { status: 500 });
+      // Update credits in Supabase
+      const { error: updateError } = await supabaseAdmin
+        .from("profiles")
+        .update({ credits: newCredits })
+        .eq("id", userId);
+
+      if (updateError) {
+        console.error("[admin-users] Supabase update error:", updateError.message);
+        return NextResponse.json({ error: "Failed to update user credits." }, { status: 500 });
+      }
+      finalCredits = newCredits;
     }
+
+    // Get latest suspension status
+    const { data: authUser } = await supabaseAdmin.auth.admin.getUserById(userId);
+    const updatedSuspended = authUser?.user ? !!authUser.user.app_metadata?.is_suspended : (isSuspended || false);
 
     const safeUser = {
       id: userId,
       email: profile.email || "",
-      credits: newCredits,
+      credits: finalCredits,
       isAdmin: profile.is_admin,
       createdAt: profile.created_at,
+      isSuspended: updatedSuspended,
     };
 
     return NextResponse.json({ success: true, user: safeUser });

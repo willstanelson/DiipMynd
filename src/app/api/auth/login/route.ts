@@ -24,6 +24,14 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: error?.message || "Invalid email or password." }, { status: 401 });
     }
 
+    // Verify if user is suspended
+    if (data.user.app_metadata?.is_suspended === true) {
+      return NextResponse.json(
+        { error: "Your account has been suspended for violating our terms of service." },
+        { status: 403 }
+      );
+    }
+
     // Fetch user profile details from the profiles table
     const { data: profile, error: profileError } = await supabaseAdmin
       .from("profiles")

@@ -293,7 +293,14 @@ export default function AdminPanel({ onClose, onBalanceUpdated, currentUserId }:
                             selectedUser?.id === user.id ? "bg-indigo-50 dark:bg-indigo-950/20 text-slate-950 dark:text-slate-100 font-bold" : ""
                           }`}
                         >
-                          <td className="py-3 pr-2 text-left truncate max-w-[150px]">{user.email}</td>
+                          <td className="py-3 pr-2 text-left truncate max-w-[150px] flex items-center gap-1.5">
+                            {user.isSuspended && (
+                              <span className="text-[8px] tracking-wider bg-rose-100 dark:bg-rose-955 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-900/50 text-rose-700 dark:text-rose-350 px-1 py-0.5 rounded font-bold uppercase shrink-0 animate-pulse">
+                                BANNED
+                              </span>
+                            )}
+                            <span className="truncate">{user.email}</span>
+                          </td>
                           <td className="py-3 text-right tabular-nums">{user.credits}</td>
                           <td className="py-3 text-right font-mono text-[9px]">
                             {user.isAdmin ? (
@@ -417,6 +424,12 @@ export default function AdminPanel({ onClose, onBalanceUpdated, currentUserId }:
                       {new Date(selectedUser.createdAt).toLocaleDateString()}
                     </span>
                   </div>
+                  <div className="flex justify-between border-t border-slate-100 dark:border-slate-800/60 pt-2 mt-1">
+                    <span className="text-slate-500 dark:text-slate-400">Account Status:</span>
+                    <span className={`font-bold ${selectedUser.isSuspended ? "text-rose-600 dark:text-rose-450" : "text-emerald-600 dark:text-emerald-450"}`}>
+                      {selectedUser.isSuspended ? "Suspended" : "Active"}
+                    </span>
+                  </div>
                 </div>
 
                 {/* Error in panel */}
@@ -477,6 +490,54 @@ export default function AdminPanel({ onClose, onBalanceUpdated, currentUserId }:
                     )}
                   </button>
                 </form>
+
+                {/* Risk Actions Section */}
+                <div className="mt-6 pt-5 border-t border-slate-200 dark:border-slate-800">
+                  <h4 className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-3">
+                    Administrative Policies
+                  </h4>
+                  <button
+                    type="button"
+                    disabled={funding}
+                    onClick={async () => {
+                      if (!selectedUser) return;
+                      setFunding(true);
+                      setError(null);
+                      setFundSuccess(false);
+                      try {
+                        const targetStatus = !selectedUser.isSuspended;
+                        const res = await fetch("/api/admin/users", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ userId: selectedUser.id, isSuspended: targetStatus }),
+                        });
+                        const data = await res.json();
+                        if (!res.ok) {
+                          throw new Error(data.error || "Failed to update suspension status");
+                        }
+                        
+                        // Update users list state
+                        setUsers((prev) =>
+                          prev.map((u) => (u.id === selectedUser.id ? { ...u, isSuspended: data.user.isSuspended } : u))
+                        );
+                        // Update detail panel state
+                        setSelectedUser(data.user);
+                        setFundSuccess(true);
+                      } catch (err: any) {
+                        setError(err.message || "Failed to update suspension state");
+                      } finally {
+                        setFunding(false);
+                      }
+                    }}
+                    className={`w-full py-2.5 rounded-xl border text-xs font-bold active:scale-95 transition-all cursor-pointer ${
+                      selectedUser.isSuspended
+                        ? "border-emerald-600 text-emerald-600 dark:text-emerald-450 hover:bg-emerald-50 dark:hover:bg-emerald-950/20"
+                        : "border-rose-600 text-rose-600 dark:text-rose-450 hover:bg-rose-50 dark:hover:bg-rose-950/20"
+                    }`}
+                  >
+                    {selectedUser.isSuspended ? "Reactivate Account" : "Suspend Account"}
+                  </button>
+                </div>
               </div>
 
               {/* Close Button inside controls */}
