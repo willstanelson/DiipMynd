@@ -98,6 +98,35 @@ export default function Home() {
 
   useEffect(() => {
     checkSession();
+
+    // Listen for auth state changes (e.g. initial recovery, OAuth redirect SIGNED_IN)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === "SIGNED_IN" && session) {
+        try {
+          const res = await fetch("/api/auth/session", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              accessToken: session.access_token,
+              expiresIn: session.expires_in,
+            }),
+          });
+          const data = await res.json();
+          if (data.user) {
+            setUser(data.user);
+            if (window.location.hash || window.location.search.includes("code=")) {
+              window.history.replaceState(null, "", window.location.pathname);
+            }
+          }
+        } catch (err) {
+          console.error("[app] Failed to sync session on auth state change:", err);
+        }
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
   const handleLogout = async () => {
