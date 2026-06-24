@@ -33,6 +33,13 @@ export default function AuthScreen({ onAuthSuccess, theme, toggleTheme, initialM
   const handleOAuthSignIn = async (provider: "google" | "apple") => {
     setError(null);
     setSuccessMessage(null);
+
+    // Enforce Content Policy agreement on signup for ALL methods including OAuth
+    if (mode === "signup" && !agree) {
+      setError("You must agree to the Content Policy to create an account.");
+      return;
+    }
+
     setLoading(true);
     try {
       const isLocalhost = 
