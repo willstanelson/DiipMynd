@@ -9,7 +9,7 @@ import { useEffect, useState } from "react";
 import LiveAvatarStream from "@/components/LiveAvatarStream";
 import AuthScreen from "@/components/AuthScreen";
 import { SafeUser } from "@/lib/auth";
-import { supabase } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase/client";
 
 export default function Home() {
   const [user, setUser] = useState<SafeUser | null>(null);
@@ -22,7 +22,7 @@ export default function Home() {
     const savedTheme = localStorage.getItem("theme") as "light" | "dark" | null;
     const systemPrefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
     const initialTheme = savedTheme || (systemPrefersDark ? "dark" : "light");
-    
+
     setTheme(initialTheme);
     if (initialTheme === "dark") {
       document.documentElement.classList.add("dark");
@@ -51,7 +51,7 @@ export default function Home() {
     try {
       // Check if this is a password recovery redirect link click
       const isRecovery = typeof window !== "undefined" && (
-        window.location.hash.includes("type=recovery") || 
+        window.location.hash.includes("type=recovery") ||
         window.location.search.includes("type=recovery")
       );
 
@@ -65,7 +65,7 @@ export default function Home() {
       console.log("[app] checkSession: checking for Supabase client session...");
       console.log("[app] Current URL:", window.location.href);
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      
+
       console.log("[app] getSession result:", { session: session ? `exists (user: ${session.user?.email})` : "null", error: sessionError });
 
       if (session) {
@@ -79,7 +79,7 @@ export default function Home() {
             expiresIn: session.expires_in,
           }),
         });
-        
+
         const data = await res.json();
         console.log("[app] /api/auth/session response:", { status: res.status, user: data.user ? "exists" : "null", error: data.error });
         if (data.user) {
@@ -122,7 +122,7 @@ export default function Home() {
     // Listen for auth state changes (e.g. initial recovery, OAuth redirect SIGNED_IN)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       console.log("[app] onAuthStateChange fired:", { event, hasSession: !!session, userEmail: session?.user?.email });
-      
+
       if (event === "PASSWORD_RECOVERY") {
         setAuthMode("reset");
         setLoading(false);
@@ -131,7 +131,7 @@ export default function Home() {
 
       // Sync session on SIGNED_IN only if we are not in recovery mode
       const isRecovery = typeof window !== "undefined" && (
-        window.location.hash.includes("type=recovery") || 
+        window.location.hash.includes("type=recovery") ||
         window.location.search.includes("type=recovery")
       );
 
@@ -211,7 +211,7 @@ export default function Home() {
           toggleTheme={toggleTheme}
         />
       ) : (
-        <AuthScreen 
+        <AuthScreen
           onAuthSuccess={(u) => {
             setUser(u);
             setAuthMode("login");

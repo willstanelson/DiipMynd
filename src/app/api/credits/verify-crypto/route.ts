@@ -9,7 +9,7 @@
 
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
-import { supabaseAdmin } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabase/server";
 
 // Crypto Packages & Pricing Matrix
 const CRYPTO_PACKAGES: Record<string, { priceUSD: number; credits: number }> = {

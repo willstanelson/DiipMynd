@@ -9,7 +9,7 @@
 
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
-import { supabaseAdmin } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabase/server";
 
 // Credit packages mapping (matching checkout definitions)
 const PACKAGE_CREDITS: Record<string, number> = {
