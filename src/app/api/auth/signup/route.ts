@@ -31,9 +31,32 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: error?.message || "Registration failed." }, { status: 400 });
     }
 
-    // Provision admin role if email matches willstanelson@gmail.com
+    // Provision profile and admin role if email matches willstanelson@gmail.com
     const isAdmin = trimmedEmail === "willstanelson@gmail.com";
-    if (isAdmin) {
+    
+    // Check if profile exists (in case trigger ran)
+    const { data: existingProfile, error: profileCheckError } = await supabaseAdmin
+      .from("profiles")
+      .select("id")
+      .eq("id", data.user.id)
+      .maybeSingle();
+
+    if (profileCheckError || !existingProfile) {
+      // If not created by trigger, insert default profile
+      const { error: profileCreateError } = await supabaseAdmin
+        .from("profiles")
+        .insert({
+          id: data.user.id,
+          email: trimmedEmail,
+          credits: 100, // default credits
+          is_admin: isAdmin,
+        });
+
+      if (profileCreateError) {
+        console.error("[signup] Failed to create user profile in Supabase:", profileCreateError.message);
+      }
+    } else if (isAdmin) {
+      // If profile was already created by trigger but needs admin rights updated
       const { error: profileUpdateError } = await supabaseAdmin
         .from("profiles")
         .update({ is_admin: true })

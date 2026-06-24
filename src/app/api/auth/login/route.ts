@@ -33,15 +33,36 @@ export async function POST(request: Request) {
     }
 
     // Fetch user profile details from the profiles table
-    const { data: profile, error: profileError } = await supabaseAdmin
+    let { data: profile, error: profileError } = await supabaseAdmin
       .from("profiles")
       .select("credits, is_admin, created_at")
       .eq("id", data.user.id)
-      .single();
+      .maybeSingle();
 
-    if (profileError || !profile) {
-      console.error("[login] Failed to retrieve user profile from Supabase:", profileError);
+    if (profileError) {
+      console.error("[login] Failed to retrieve user profile from Supabase:", profileError.message);
       return NextResponse.json({ error: "Failed to load user profile details." }, { status: 500 });
+    }
+
+    if (!profile) {
+      console.log(`[login] Profile not found for user ${data.user.id}, creating a default profile...`);
+      const isAdmin = trimmedEmail === "willstanelson@gmail.com";
+      const { data: newProfile, error: createProfileError } = await supabaseAdmin
+        .from("profiles")
+        .insert({
+          id: data.user.id,
+          email: trimmedEmail,
+          credits: 100, // default credits
+          is_admin: isAdmin,
+        })
+        .select("credits, is_admin, created_at")
+        .single();
+
+      if (createProfileError || !newProfile) {
+        console.error("[login] Failed to create user profile in Supabase:", createProfileError);
+        return NextResponse.json({ error: "Failed to load user profile details." }, { status: 500 });
+      }
+      profile = newProfile;
     }
 
     // Set HTTP-only session cookie

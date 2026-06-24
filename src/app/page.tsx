@@ -15,6 +15,7 @@ export default function Home() {
   const [user, setUser] = useState<SafeUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [authMode, setAuthMode] = useState<"login" | "signup" | "forgot" | "reset">("login");
 
   // Initialize theme from localStorage or system preference
   useEffect(() => {
@@ -48,11 +49,28 @@ export default function Home() {
   // Check if session exists on load
   const checkSession = async () => {
     try {
+      // Check if this is a password recovery redirect link click
+      const isRecovery = typeof window !== "undefined" && (
+        window.location.hash.includes("type=recovery") || 
+        window.location.search.includes("type=recovery")
+      );
+
+      if (isRecovery) {
+        setAuthMode("reset");
+        setLoading(false);
+        return;
+      }
+
       // 1. Check if there is an active Supabase client-side session (handles OAuth callback codes/tokens)
-      const { data: { session } } = await supabase.auth.getSession();
+      console.log("[app] checkSession: checking for Supabase client session...");
+      console.log("[app] Current URL:", window.location.href);
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
       
+      console.log("[app] getSession result:", { session: session ? `exists (user: ${session.user?.email})` : "null", error: sessionError });
+
       if (session) {
         // Synchronize browser session to server-side HttpOnly cookie session
+        console.log("[app] Session found, syncing to server cookie...");
         const res = await fetch("/api/auth/session", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -63,6 +81,7 @@ export default function Home() {
         });
         
         const data = await res.json();
+        console.log("[app] /api/auth/session response:", { status: res.status, user: data.user ? "exists" : "null", error: data.error });
         if (data.user) {
           setUser(data.user);
           // Clean up the OAuth authorization parameters and hash fragments from URL bar
@@ -72,6 +91,7 @@ export default function Home() {
           setLoading(false);
           return;
         } else if (data.error) {
+          console.error("[app] Session sync failed:", data.error);
           // If token exchange fails (e.g. user suspended), sign out locally
           await supabase.auth.signOut();
           setUser(null);
@@ -101,8 +121,23 @@ export default function Home() {
 
     // Listen for auth state changes (e.g. initial recovery, OAuth redirect SIGNED_IN)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === "SIGNED_IN" && session) {
+      console.log("[app] onAuthStateChange fired:", { event, hasSession: !!session, userEmail: session?.user?.email });
+      
+      if (event === "PASSWORD_RECOVERY") {
+        setAuthMode("reset");
+        setLoading(false);
+        return;
+      }
+
+      // Sync session on SIGNED_IN only if we are not in recovery mode
+      const isRecovery = typeof window !== "undefined" && (
+        window.location.hash.includes("type=recovery") || 
+        window.location.search.includes("type=recovery")
+      );
+
+      if (event === "SIGNED_IN" && session && !isRecovery && authMode !== "reset") {
         try {
+          console.log("[app] onAuthStateChange: SIGNED_IN event, syncing session to server...");
           const res = await fetch("/api/auth/session", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -112,6 +147,7 @@ export default function Home() {
             }),
           });
           const data = await res.json();
+          console.log("[app] onAuthStateChange: /api/auth/session response:", { status: res.status, user: data.user ? "exists" : "null", error: data.error });
           if (data.user) {
             setUser(data.user);
             if (window.location.hash || window.location.search.includes("code=")) {
@@ -127,7 +163,7 @@ export default function Home() {
     return () => {
       subscription.unsubscribe();
     };
-  }, []);
+  }, [authMode]);
 
   const handleLogout = async () => {
     try {
@@ -166,7 +202,7 @@ export default function Home() {
 
   return (
     <main className="relative z-10 flex min-h-dvh flex-col items-center justify-center p-6 md:p-10 transition-colors duration-200">
-      {user ? (
+      {user && authMode !== "reset" ? (
         <LiveAvatarStream
           user={user}
           onLogout={handleLogout}
@@ -176,18 +212,15 @@ export default function Home() {
         />
       ) : (
         <AuthScreen 
-          onAuthSuccess={setUser}
+          onAuthSuccess={(u) => {
+            setUser(u);
+            setAuthMode("login");
+          }}
           theme={theme}
           toggleTheme={toggleTheme}
+          initialMode={authMode}
         />
       )}
-
-      {/* Footer tagline */}
-      <footer className="mt-8 text-center">
-        <p className="text-xs text-slate-400 dark:text-slate-500 tracking-widest uppercase">
-          Powered by Decart + Fal.ai · Smart Router · WebRTC · Next.js
-        </p>
-      </footer>
     </main>
   );
 }
