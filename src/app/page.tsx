@@ -61,50 +61,15 @@ export default function Home() {
         return;
       }
 
-      // 1. Check if there is an active Supabase client-side session (handles OAuth callback codes/tokens)
-      console.log("[app] checkSession: checking for Supabase client session...");
-      console.log("[app] Current URL:", window.location.href);
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-
-      console.log("[app] getSession result:", { session: session ? `exists (user: ${session.user?.email})` : "null", error: sessionError });
-
-      if (session) {
-        // Synchronize browser session to server-side HttpOnly cookie session
-        console.log("[app] Session found, syncing to server cookie...");
-        const res = await fetch("/api/auth/session", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            accessToken: session.access_token,
-            expiresIn: session.expires_in,
-          }),
-        });
-
-        const data = await res.json();
-        console.log("[app] /api/auth/session response:", { status: res.status, user: data.user ? "exists" : "null", error: data.error });
-        if (data.user) {
-          setUser(data.user);
-          // Clean up the OAuth authorization parameters and hash fragments from URL bar
-          if (window.location.hash || window.location.search.includes("code=")) {
-            window.history.replaceState(null, "", window.location.pathname);
-          }
-          setLoading(false);
-          return;
-        } else if (data.error) {
-          console.error("[app] Session sync failed:", data.error);
-          // If token exchange fails (e.g. user suspended), sign out locally
-          await supabase.auth.signOut();
-          setUser(null);
-          setLoading(false);
-          return;
-        }
-      }
-
-      // 2. Otherwise fallback to standard cookie session check
+      // Fetch the verified server-side session
       const res = await fetch("/api/auth/me");
       const data = await res.json();
       if (data.user) {
         setUser(data.user);
+        // Clean up the OAuth authorization parameters and hash fragments from URL bar
+        if (window.location.hash || window.location.search.includes("code=")) {
+          window.history.replaceState(null, "", window.location.pathname);
+        }
       } else {
         setUser(null);
       }
@@ -129,25 +94,10 @@ export default function Home() {
         return;
       }
 
-      // Sync session on SIGNED_IN only if we are not in recovery mode
-      const isRecovery = typeof window !== "undefined" && (
-        window.location.hash.includes("type=recovery") ||
-        window.location.search.includes("type=recovery")
-      );
-
-      if (event === "SIGNED_IN" && session && !isRecovery && authMode !== "reset") {
+      if (event === "SIGNED_IN" && session && authMode !== "reset") {
         try {
-          console.log("[app] onAuthStateChange: SIGNED_IN event, syncing session to server...");
-          const res = await fetch("/api/auth/session", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              accessToken: session.access_token,
-              expiresIn: session.expires_in,
-            }),
-          });
+          const res = await fetch("/api/auth/me");
           const data = await res.json();
-          console.log("[app] onAuthStateChange: /api/auth/session response:", { status: res.status, user: data.user ? "exists" : "null", error: data.error });
           if (data.user) {
             setUser(data.user);
             if (window.location.hash || window.location.search.includes("code=")) {
