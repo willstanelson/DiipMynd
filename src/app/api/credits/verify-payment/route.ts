@@ -1,25 +1,22 @@
 // ============================================================================
 // DiipMynd — Backend: Paystack Payment Verification Handler
-// GET /api/credits/verify-payment?reference=xxx
+// POST /api/credits/verify-payment
 //
 // This endpoint manually verifies a Paystack checkout transaction reference.
 // It is called by the frontend upon redirect to ensure immediate crediting
 // and feedback (toasts) without waiting for webhook delivery.
+//
+// CHANGED: Moved from GET to POST to prevent CSRF attacks. GET routes that
+// mutate server state are a textbook CSRF vulnerability.
 // ============================================================================
 
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
+import { adjustCredits, UserNotFoundError } from "@/lib/credits";
 import { supabaseAdmin } from "@/lib/supabase/server";
+import { PACKAGE_CREDITS, PACKAGE_PRICES_KOBO } from "@/lib/packages";
 
-// Credit packages mapping (matching checkout definitions)
-const PACKAGE_CREDITS: Record<string, number> = {
-  trial: 600,       // 10 minutes
-  starter: 1800,    // 30 minutes
-  standard: 3600,   // 1 hour
-  pro: 18000,       // 5 hours
-};
-
-export async function GET(request: Request) {
+export async function POST(request: Request) {
   try {
     // ── Guard: Authenticate user ─────────────────────────────────────────
     const currentUser = await getCurrentUser();
@@ -27,33 +24,28 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Authentication required." }, { status: 401 });
     }
 
-    // ── Guard: Extract reference ──────────────────────────────────────────
-    const { searchParams } = new URL(request.url);
-    const reference = searchParams.get("reference");
+    // ── Guard: Extract reference from body ────────────────────────────────
+    const body = await request.json().catch(() => ({}));
+    const reference = body.reference;
 
-    if (!reference) {
+    if (!reference || typeof reference !== "string") {
       return NextResponse.json({ error: "Transaction reference is required." }, { status: 400 });
     }
 
     console.log(`[verify-payment] Verifying transaction reference: ${reference} for user ${currentUser.email}`);
 
     // ── Check if already processed (Idempotency) ──────────────────────────
-    const { data: existingLog, error: fetchLogErr } = await supabaseAdmin
+    // We defer the actual DB insert/update to the end to prevent TOCTOU races,
+    // but we can still do an early check to save the Paystack API call if it's already approved.
+    const { data: existingLog } = await supabaseAdmin
       .from("credit_requests")
       .select("id, status")
       .eq("tx_hash", reference)
       .maybeSingle();
 
-    if (fetchLogErr) {
-      console.error("[verify-payment] DB log fetch error:", fetchLogErr.message);
-    }
-
-    if (existingLog) {
-      if (existingLog.status === "approved") {
-        console.log(`[verify-payment] Reference ${reference} already approved and processed.`);
-        return NextResponse.json({ success: true, message: "Payment already processed." });
-      }
-      // If it's pending, let's proceed to verify and update
+    if (existingLog && existingLog.status === "approved") {
+      console.log(`[verify-payment] Reference ${reference} already approved and processed.`);
+      return NextResponse.json({ success: true, message: "Payment already processed." });
     }
 
     // ── Verify with Paystack API ──────────────────────────────────────────
@@ -107,64 +99,43 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Invalid package identifier." }, { status: 400 });
     }
 
-    // ── Credit User Profile & Insert/Update Log Idempotently ─────────────
-    // Fetch profile to get current credits
-    const { data: profile, error: selectError } = await supabaseAdmin
-      .from("profiles")
-      .select("credits")
-      .eq("id", currentUser.id)
-      .single();
-
-    if (selectError || !profile) {
-      console.error("[verify-payment] Failed to load profile credits:", selectError?.message);
-      return NextResponse.json({ error: "User profile not found." }, { status: 404 });
+    const expectedAmountKobo = PACKAGE_PRICES_KOBO[packageId];
+    if (!expectedAmountKobo || amount < expectedAmountKobo) {
+      console.warn(`[verify-payment] Amount mismatch: paid ${amount} kobo, expected ${expectedAmountKobo}`);
+      return NextResponse.json({ error: "Payment amount does not match package price." }, { status: 400 });
     }
 
-    const newCredits = profile.credits + creditsToAdd;
+    // ── Atomically mark as approved ───────────────────────────────────────
+    // If it fails or returns no data, someone else already inserted it (race condition prevented)
+    const { data: insertedData, error: logInsertError } = await supabaseAdmin
+      .from("credit_requests")
+      .upsert({
+        user_id: currentUser.id,
+        email: customer?.email || currentUser.email,
+        package_id: packageId,
+        amount: creditsToAdd,
+        status: "approved",
+        payment_method: `Paystack (${channel || "card"})`,
+        tx_hash: reference,
+      }, { onConflict: "tx_hash", ignoreDuplicates: true })
+      .select("id")
+      .maybeSingle();
 
-    // Perform database updates
-    const { error: updateError } = await supabaseAdmin
-      .from("profiles")
-      .update({ credits: newCredits })
-      .eq("id", currentUser.id);
-
-    if (updateError) {
-      console.error("[verify-payment] Failed to credit profile:", updateError.message);
-      return NextResponse.json({ error: "Failed to credit profile." }, { status: 500 });
+    if (logInsertError || !insertedData) {
+      console.log(`[verify-payment] Race condition prevented. Reference ${reference} already processed.`);
+      return NextResponse.json({ success: true, message: "Payment already processed." });
     }
 
-    // Upsert or insert into credit_requests to mark it approved
-    if (existingLog) {
-      const { error: logUpdateError } = await supabaseAdmin
-        .from("credit_requests")
-        .update({ status: "approved" })
-        .eq("id", existingLog.id);
-      
-      if (logUpdateError) {
-        console.error("[verify-payment] Failed to update credit_requests status:", logUpdateError.message);
-      }
-    } else {
-      const { error: logInsertError } = await supabaseAdmin
-        .from("credit_requests")
-        .insert({
-          user_id: currentUser.id,
-          email: customer?.email || currentUser.email,
-          package_id: packageId,
-          amount: creditsToAdd,
-          status: "approved",
-          payment_method: `Paystack (${channel || "card"})`,
-          tx_hash: reference,
-        });
-
-      if (logInsertError) {
-        console.error("[verify-payment] Failed to log request:", logInsertError.message);
-      }
-    }
+    const newCredits = await adjustCredits(currentUser.id, creditsToAdd, `Paystack Payment Verification (${reference})`, "paystack-verify");
 
     console.log(`[verify-payment] Successfully credited user ${currentUser.email} with ${creditsToAdd} credits.`);
     return NextResponse.json({ success: true, credits: newCredits });
 
-  } catch (err: unknown) {
+  } catch (err) {
+    if (err instanceof UserNotFoundError) {
+      return NextResponse.json({ error: "User profile not found." }, { status: 404 });
+    }
+
     const msg = err instanceof Error ? err.message : "Internal verification error.";
     console.error("[verify-payment] Error:", msg);
     return NextResponse.json({ error: msg }, { status: 500 });

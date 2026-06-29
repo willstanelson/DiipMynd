@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
+import { adjustCredits, UserNotFoundError } from "@/lib/credits";
 import { supabaseAdmin } from "@/lib/supabase/server";
 
 /**
@@ -25,14 +26,33 @@ export async function GET() {
       return NextResponse.json({ error: "Failed to fetch users list." }, { status: 500 });
     }
 
-    // Fetch all auth users to check for is_suspended flag in app_metadata
+    // Fetch all auth users to check for is_suspended flag in app_metadata (paginated)
     const suspensionMap = new Map<string, boolean>();
     try {
-      const { data: authData, error: authError } = await supabaseAdmin.auth.admin.listUsers();
-      if (!authError && authData?.users) {
+      let page = 1;
+      const perPage = 100;
+      let hasMore = true;
+
+      while (hasMore) {
+        const { data: authData, error: authError } = await supabaseAdmin.auth.admin.listUsers({
+          page,
+          perPage,
+        });
+
+        if (authError || !authData?.users || authData.users.length === 0) {
+          hasMore = false;
+          break;
+        }
+
         authData.users.forEach((u) => {
           suspensionMap.set(u.id, !!u.app_metadata?.is_suspended);
         });
+
+        if (authData.users.length < perPage) {
+          hasMore = false;
+        } else {
+          page++;
+        }
       }
     } catch (authErr) {
       console.error("[admin-users] Failed to fetch auth users metadata:", authErr);
@@ -70,7 +90,7 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { userId, amount, isSuspended } = body;
+    const { userId, amount, isSuspended, reason } = body;
 
     if (!userId) {
       return NextResponse.json({ error: "userId is required." }, { status: 400 });
@@ -88,7 +108,7 @@ export async function POST(request: Request) {
       }
     }
 
-    // Fetch user's current profile
+    // Fetch user's current profile (for display data; credits are adjusted atomically)
     const { data: profile, error: selectError } = await supabaseAdmin
       .from("profiles")
       .select("credits, is_admin, email, created_at")
@@ -102,20 +122,13 @@ export async function POST(request: Request) {
 
     let finalCredits = profile.credits;
 
-    if (typeof amount === "number") {
-      const newCredits = Math.max(0, profile.credits + amount);
-
-      // Update credits in Supabase
-      const { error: updateError } = await supabaseAdmin
-        .from("profiles")
-        .update({ credits: newCredits })
-        .eq("id", userId);
-
-      if (updateError) {
-        console.error("[admin-users] Supabase update error:", updateError.message);
-        return NextResponse.json({ error: "Failed to update user credits." }, { status: 500 });
+    if (typeof amount === "number" && amount !== 0) {
+      const MAX_ADMIN_ADJUSTMENT = 100000;
+      if (Math.abs(amount) > MAX_ADMIN_ADJUSTMENT) {
+        return NextResponse.json({ error: `Adjustment exceeds safety limit of ${MAX_ADMIN_ADJUSTMENT}.` }, { status: 400 });
       }
-      finalCredits = newCredits;
+      // Use atomic credit adjustment instead of manual read-compute-write
+      finalCredits = await adjustCredits(userId, amount, reason || "Manual Admin Adjustment", "admin-adjustment", adminUser.id);
     }
 
     // Get latest suspension status
@@ -132,7 +145,11 @@ export async function POST(request: Request) {
     };
 
     return NextResponse.json({ success: true, user: safeUser });
-  } catch (err: unknown) {
+  } catch (err) {
+    if (err instanceof UserNotFoundError) {
+      return NextResponse.json({ error: "User profile not found." }, { status: 404 });
+    }
+
     const msg = err instanceof Error ? err.message : "Failed to update credits";
     console.error("[admin-users] POST error:", msg);
     return NextResponse.json({ error: msg }, { status: 500 });

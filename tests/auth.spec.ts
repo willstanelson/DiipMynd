@@ -14,6 +14,8 @@ test("Cookies contain secure flags on successful sign in", async ({ context, pag
   await page.click('button[type="submit"]');
 
   // Verify layout page loads successfully
+  await page.waitForSelector('#btn-nav-stream');
+  await page.click('#btn-nav-stream');
   await page.waitForSelector('#btn-start');
   
   const cookies = await context.cookies();

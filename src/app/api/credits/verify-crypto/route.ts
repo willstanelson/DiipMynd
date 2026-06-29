@@ -4,28 +4,14 @@
 //
 // This endpoint verifies an on-chain transaction hash for TRON (TRC-20 USDT)
 // or BSC (BEP-20 USDT/USDC) using public blockchain explorers/RPCs.
-// If valid and matches package pricing, it credits the user's account.
+// If valid and matches package pricing, it atomically credits the user.
 // ============================================================================
 
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
+import { adjustCredits, UserNotFoundError } from "@/lib/credits";
 import { supabaseAdmin } from "@/lib/supabase/server";
-
-// Crypto Packages & Pricing Matrix
-const CRYPTO_PACKAGES: Record<string, { priceUSD: number; credits: number }> = {
-  trial: { priceUSD: 33.00, credits: 600 },       // 10 minutes
-  starter: { priceUSD: 90.00, credits: 1800 },     // 30 minutes
-  standard: { priceUSD: 162.00, credits: 3600 },   // 1 hour
-  pro: { priceUSD: 720.00, credits: 18000 },      // 5 hours
-};
-
-// Configuration Constants
-const TARGET_TRON_WALLET = "TPoYAxCNnPPZS6EarjrLGKDgiu3B8MGVyA";
-const TARGET_BSC_WALLET = "0x467249EAC0FDeC3dB9aD2814eBACbd62253eDcFA";
-
-const TRC20_USDT_CONTRACT = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t";
-const BEP20_USDT_CONTRACT = "0x55d398326f99059ff775485246999027b3197955";
-const BEP20_USDC_CONTRACT = "0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d";
+import { CRYPTO_WALLETS, PACKAGE_CREDITS, PACKAGE_PRICES_USD } from "@/lib/packages";
 
 export async function POST(request: Request) {
   try {
@@ -51,12 +37,16 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Unsupported blockchain network." }, { status: 400 });
     }
 
-    const packageConfig = CRYPTO_PACKAGES[packageId];
-    if (!packageConfig) {
+    const expectedUSD = PACKAGE_PRICES_USD[packageId];
+    if (expectedUSD === undefined) {
       return NextResponse.json({ error: "Invalid package identifier." }, { status: 400 });
     }
 
-    const expectedUSD = packageConfig.priceUSD;
+    const creditsToAdd = PACKAGE_CREDITS[packageId];
+    if (!creditsToAdd) {
+      return NextResponse.json({ error: "Invalid package identifier." }, { status: 400 });
+    }
+
     console.log(`[verify-crypto] Verifying ${normalizedNetwork} transaction: ${txHash} for package ${packageId} ($${expectedUSD})`);
 
     // ── Guard: Check for duplicate transaction (Idempotency) ──────────────
@@ -81,6 +71,7 @@ export async function POST(request: Request) {
 
     // ── Network verification: TRON (TRC-20) ───────────────────────────────
     if (normalizedNetwork === "tron") {
+      const walletConfig = CRYPTO_WALLETS.tron;
       // Fetch Tronscan transaction info
       const tronscanUrl = `https://apilist.tronscanapi.com/api/transaction-info?hash=${encodeURIComponent(txHash)}`;
       const res = await fetch(tronscanUrl, {
@@ -121,8 +112,8 @@ export async function POST(request: Request) {
         const decimals = transfer.decimals || transfer.tokenInfo?.tokenDecimal || 6;
 
         if (
-          toAddress === TARGET_TRON_WALLET &&
-          contractId === TRC20_USDT_CONTRACT &&
+          toAddress === walletConfig.address &&
+          contractId === walletConfig.contract &&
           amountStr
         ) {
           const actualAmountUSD = Number(amountStr) / Math.pow(10, decimals);
@@ -136,7 +127,7 @@ export async function POST(request: Request) {
 
       if (!isVerified) {
         return NextResponse.json(
-          { error: `No matching transfer to ${TARGET_TRON_WALLET} of at least $${expectedUSD} USDT found.` },
+          { error: `No matching transfer to ${walletConfig.address} of at least $${expectedUSD} USDT found.` },
           { status: 400 }
         );
       }
@@ -144,6 +135,7 @@ export async function POST(request: Request) {
 
     // ── Network verification: BSC (BEP-20) ────────────────────────────────
     if (normalizedNetwork === "bsc") {
+      const walletConfig = CRYPTO_WALLETS.bsc;
       const rpcUrl = "https://bsc-dataseed.binance.org/";
       const rpcRes = await fetch(rpcUrl, {
         method: "POST",
@@ -176,7 +168,7 @@ export async function POST(request: Request) {
 
       // Parse transfer log
       const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
-      const targetPaddedWallet = `0x000000000000000000000000${TARGET_BSC_WALLET.substring(2).toLowerCase()}`;
+      const targetPaddedWallet = `0x000000000000000000000000${walletConfig.address.substring(2).toLowerCase()}`;
 
       const logs = receipt.logs || [];
       for (const log of logs) {
@@ -186,8 +178,8 @@ export async function POST(request: Request) {
         // Check if log matches Transfer(address,address,uint256) signature
         if (topics[0] === TRANSFER_TOPIC && topics.length >= 3) {
           const matchesContract =
-            contractAddress === BEP20_USDT_CONTRACT.toLowerCase() ||
-            contractAddress === BEP20_USDC_CONTRACT.toLowerCase();
+            contractAddress === walletConfig.usdtContract.toLowerCase() ||
+            contractAddress === walletConfig.usdcContract.toLowerCase();
 
           const matchesRecipient = topics[2].toLowerCase() === targetPaddedWallet;
 
@@ -207,44 +199,19 @@ export async function POST(request: Request) {
 
       if (!isVerified) {
         return NextResponse.json(
-          { error: `No matching BSC transfer to ${TARGET_BSC_WALLET} of at least $${expectedUSD} USDT/USDC found.` },
+          { error: `No matching BSC transfer to ${walletConfig.address} of at least $${expectedUSD} USDT/USDC found.` },
           { status: 400 }
         );
       }
     }
 
-    // ── Perform database updates if verified successfully ─────────────────
+    // ── Atomically log and credit ─────────────────────────────────────────
     if (isVerified) {
-      // 1. Fetch current credits
-      const { data: profile, error: selectError } = await supabaseAdmin
-        .from("profiles")
-        .select("credits")
-        .eq("id", currentUser.id)
-        .single();
-
-      if (selectError || !profile) {
-        console.error("[verify-crypto] Failed to load profile credits:", selectError?.message);
-        return NextResponse.json({ error: "User profile not found." }, { status: 404 });
-      }
-
-      const creditsToAdd = packageConfig.credits;
-      const newCredits = profile.credits + creditsToAdd;
-
-      // 2. Update credits in DB
-      const { error: updateError } = await supabaseAdmin
-        .from("profiles")
-        .update({ credits: newCredits })
-        .eq("id", currentUser.id);
-
-      if (updateError) {
-        console.error("[verify-crypto] Failed to credit profile:", updateError.message);
-        return NextResponse.json({ error: "Failed to credit profile." }, { status: 500 });
-      }
-
-      // 3. Insert transaction log into credit_requests
-      const { error: logInsertError } = await supabaseAdmin
+      // Insert transaction log into credit_requests FIRST to lock the hash
+      // If it fails or returns no data, someone else already inserted it (race condition prevented)
+      const { data: insertedData, error: logInsertError } = await supabaseAdmin
         .from("credit_requests")
-        .insert({
+        .upsert({
           user_id: currentUser.id,
           email: currentUser.email,
           package_id: packageId,
@@ -252,18 +219,28 @@ export async function POST(request: Request) {
           status: "approved",
           payment_method: `Crypto (${normalizedNetwork.toUpperCase()})`,
           tx_hash: txHash,
-        });
+        }, { onConflict: "tx_hash", ignoreDuplicates: true })
+        .select("id")
+        .maybeSingle();
 
-      if (logInsertError) {
-        console.error("[verify-crypto] Failed to log request:", logInsertError.message);
+      if (logInsertError || !insertedData) {
+        console.warn(`[verify-crypto] Race condition prevented for tx: ${txHash}`);
+        return NextResponse.json({ error: "Transaction already processed." }, { status: 400 });
       }
+
+      // Safe to credit the user now
+      const newCredits = await adjustCredits(currentUser.id, creditsToAdd, `Crypto Payment Verification (${txHash})`, "crypto-verify");
 
       console.log(`[verify-crypto] Successfully credited user ${currentUser.email} with ${creditsToAdd} credits.`);
       return NextResponse.json({ success: true, credits: newCredits });
     }
 
     return NextResponse.json({ error: "Verification failed." }, { status: 400 });
-  } catch (err: unknown) {
+  } catch (err) {
+    if (err instanceof UserNotFoundError) {
+      return NextResponse.json({ error: "User profile not found." }, { status: 404 });
+    }
+
     const msg = err instanceof Error ? err.message : "Internal verification error.";
     console.error("[verify-crypto] Error:", msg);
     return NextResponse.json({ error: msg }, { status: 500 });

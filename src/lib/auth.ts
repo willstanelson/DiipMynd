@@ -63,7 +63,7 @@ export async function getCurrentUser(): Promise<SafeUser | null> {
 
     return {
       id: user.id,
-      email: user.email!,
+      email: user.email || "",
       credits: profile.credits,
       isAdmin: profile.is_admin,
       createdAt: profile.created_at,

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabase/server";
+import { sanitizeInput } from "@/lib/sanitize";
 
 export async function POST(request: Request) {
   try {
@@ -10,10 +11,12 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { packageId, amount, paymentMethod, txHash } = body;
+    const { packageId, paymentMethod, txHash } = body;
+    const { PACKAGE_CREDITS } = await import("@/lib/packages");
+    const amount = PACKAGE_CREDITS[packageId];
 
-    if (!packageId || typeof amount !== "number") {
-      return NextResponse.json({ error: "packageId and amount are required." }, { status: 400 });
+    if (!packageId || !amount) {
+      return NextResponse.json({ error: "Valid packageId is required." }, { status: 400 });
     }
 
     // Limit active pending requests to prevent abuse/spam
@@ -35,6 +38,9 @@ export async function POST(request: Request) {
       );
     }
 
+    const sanitizedPaymentMethod = paymentMethod ? sanitizeInput(paymentMethod) : undefined;
+    const sanitizedTxHash = txHash ? sanitizeInput(txHash) : undefined;
+
     const { error: insertError } = await supabaseAdmin
       .from("credit_requests")
       .insert({
@@ -43,8 +49,8 @@ export async function POST(request: Request) {
         package_id: packageId,
         amount,
         status: "pending",
-        payment_method: paymentMethod,
-        tx_hash: txHash,
+        payment_method: sanitizedPaymentMethod,
+        tx_hash: sanitizedTxHash,
       });
 
     if (insertError) {

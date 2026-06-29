@@ -2,22 +2,17 @@
 // DiipMynd — Backend: Paystack Webhook Handler
 // POST /api/webhooks/paystack
 //
-// This route processes success webhooks from Paystack (forwarded securely
-// by the parent Trustlink server). It verifies the signature, verifies it
-// is for DiipMynd, credits the user's balance, and logs the transaction.
+// This route processes success webhooks from Paystack. It verifies the HMAC
+// signature, checks if the transaction is for DiipMynd, atomically credits
+// the user's balance, and logs the transaction with idempotency protection
+// to prevent double-crediting from webhook retries.
 // ============================================================================
 
 import { NextResponse } from "next/server";
 import crypto from "crypto";
+import { adjustCredits, UserNotFoundError } from "@/lib/credits";
 import { supabaseAdmin } from "@/lib/supabase/server";
-
-// Credit packages mapping (matching checkout definitions)
-const PACKAGE_CREDITS: Record<string, number> = {
-  trial: 600,       // 10 minutes
-  starter: 1800,    // 30 minutes
-  standard: 3600,   // 1 hour
-  pro: 18000,       // 5 hours
-};
+import { PACKAGE_CREDITS } from "@/lib/packages";
 
 export async function POST(request: Request) {
   try {
@@ -29,7 +24,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Missing signature." }, { status: 401 });
     }
 
-    const secretKey = process.env.PAYSTACK_SECRET_KEY || "";
+    const secretKey = process.env.PAYSTACK_SECRET_KEY;
+    if (!secretKey) {
+      console.error("[paystack-webhook] PAYSTACK_SECRET_KEY is missing. Refusing to process.");
+      return NextResponse.json({ error: "Server misconfigured." }, { status: 500 });
+    }
     
     // ── Verify Signature ──────────────────────────────────────────────────
     const expectedSignature = crypto
@@ -37,7 +36,10 @@ export async function POST(request: Request) {
       .update(rawBody)
       .digest("hex");
 
-    if (signature !== expectedSignature) {
+    const sigBuffer = Buffer.from(signature, "hex");
+    const expectedBuffer = Buffer.from(expectedSignature, "hex");
+
+    if (sigBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(sigBuffer, expectedBuffer)) {
       console.error("[paystack-webhook] Invalid signature mismatch.");
       return NextResponse.json({ error: "Invalid signature validation." }, { status: 401 });
     }
@@ -64,56 +66,77 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Invalid package identifier." }, { status: 400 });
     }
 
+    // ── Idempotency: Check if this reference has already been processed ───
+    const { data: existingLog, error: fetchLogErr } = await supabaseAdmin
+      .from("credit_requests")
+      .select("id, status")
+      .eq("tx_hash", data.reference)
+      .maybeSingle();
+
+    if (fetchLogErr) {
+      console.error("[paystack-webhook] DB idempotency check error:", fetchLogErr.message);
+    }
+
+    if (existingLog?.status === "approved") {
+      console.log(`[paystack-webhook] Reference ${data.reference} already processed. Skipping.`);
+      return NextResponse.json({ success: true, message: "Already processed." });
+    }
+
     console.log(`[paystack-webhook] Processing payment for user: ${userId}. Package: ${packageId} (${creditsToAdd} credits)`);
 
-    // ── Fetch current user profile ─────────────────────────────────────────
-    const { data: profile, error: selectError } = await supabaseAdmin
-      .from("profiles")
-      .select("credits")
-      .eq("id", userId)
-      .single();
+    // ── Atomically mark as approved ───────────────────────────────────────
+    let isWinner = false;
 
-    if (selectError || !profile) {
-      console.error("[paystack-webhook] Failed to load target profile:", selectError?.message);
-      return NextResponse.json({ error: "User profile not found." }, { status: 404 });
+    if (existingLog) {
+      // It exists. We must atomically flip it from pending to approved.
+      // If it's already approved, this update will return no rows.
+      const { data: updated } = await supabaseAdmin
+        .from("credit_requests")
+        .update({ status: "approved" })
+        .eq("id", existingLog.id)
+        .eq("status", "pending")
+        .select()
+        .maybeSingle();
+
+      if (updated) {
+        isWinner = true;
+      }
+    } else {
+      // Insert new approved record. Unique constraint on tx_hash prevents races.
+      const { error: insertErr } = await supabaseAdmin
+        .from("credit_requests")
+        .insert({
+          user_id: userId,
+          email: data.customer.email,
+          package_id: packageId,
+          amount: creditsToAdd,
+          status: "approved",
+          payment_method: `Paystack (${data.channel || "card"})`,
+          tx_hash: data.reference,
+        });
+
+      if (!insertErr) {
+        isWinner = true;
+      }
     }
 
-    // ── Credit User Balance & Log Transaction ─────────────────────────────
-    const newCredits = profile.credits + creditsToAdd;
-
-    // Run updates sequentially
-    const { error: updateError } = await supabaseAdmin
-      .from("profiles")
-      .update({ credits: newCredits })
-      .eq("id", userId);
-
-    if (updateError) {
-      console.error("[paystack-webhook] Failed to update credits:", updateError.message);
-      return NextResponse.json({ error: "Failed to update credits." }, { status: 500 });
+    if (!isWinner) {
+      console.log(`[paystack-webhook] Lost the race. Reference ${data.reference} already processed.`);
+      return NextResponse.json({ success: true, message: "Already processed." });
     }
 
-    // Log the transaction in the existing credit_requests table
-    const { error: logError } = await supabaseAdmin
-      .from("credit_requests")
-      .insert({
-        user_id: userId,
-        email: data.customer.email,
-        package_id: packageId,
-        amount: creditsToAdd,
-        status: "approved",
-        payment_method: `Paystack (${data.channel || "card"})`,
-        tx_hash: data.reference,
-      });
-
-    if (logError) {
-      // Log it but do not fail checkout (user has already been credited)
-      console.error("[paystack-webhook] Failed to write credit_requests log:", logError.message);
-    }
+    // ── Atomically credit user balance ────────────────────────────────────
+    const newCredits = await adjustCredits(userId, creditsToAdd, `Paystack Webhook Payment (${data.reference})`, "paystack");
 
     console.log(`[paystack-webhook] User ${userId} credited with ${creditsToAdd} credits successfully.`);
 
     return NextResponse.json({ success: true, message: "Credits updated successfully." });
-  } catch (err: unknown) {
+  } catch (err) {
+    if (err instanceof UserNotFoundError) {
+      console.error("[paystack-webhook] User profile not found for webhook crediting.");
+      return NextResponse.json({ error: "User profile not found." }, { status: 404 });
+    }
+
     const msg = err instanceof Error ? err.message : "Webhook processing failed.";
     console.error("[paystack-webhook] Webhook crashed:", msg);
     return NextResponse.json({ error: msg }, { status: 500 });

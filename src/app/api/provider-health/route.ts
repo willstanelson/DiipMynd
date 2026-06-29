@@ -8,6 +8,7 @@
 // ============================================================================
 
 import { NextResponse } from "next/server";
+import { getCurrentUser } from "@/lib/auth";
 import type { ProviderHealthResponse, ProviderHealthStatus } from "@/types";
 
 /**
@@ -38,6 +39,10 @@ async function probeEndpoint(
 }
 
 export async function GET() {
+  const currentUser = await getCurrentUser();
+  if (!currentUser) {
+    return NextResponse.json({ error: "Authentication required." }, { status: 401 });
+  }
   // Probe both providers concurrently
   const [decart, fal] = await Promise.all([
     // Decart — client tokens endpoint GET (returns 405 Method Not Allowed when active)

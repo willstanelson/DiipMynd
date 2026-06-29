@@ -1,157 +1,820 @@
 /* ============================================================================
-   DiipMynd — Global Styles
-   Premium minimalist light theme with soft shadows and clean boundaries.
+   DiipMynd — Global Styles v3.0  ·  Obsidian Night
+   Pure monochrome black. No hue. Depth from elevation, glow, and grain.
    ============================================================================ */
 
 @import "tailwindcss";
 
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* ── CSS Custom Properties (Design Tokens) ──────────────────────────────── */
+/* ── 1. Design Tokens ──────────────────────────────────────────────────── */
 :root {
-  --bg-primary: #f8fafc; /* Slate 50 */
-  --bg-surface: #ffffff; /* Pure White */
-  --accent-violet: #4f46e5; /* Indigo 600 */
-  --accent-cyan: #0d9488; /* Teal 600 */
-  --accent-fuchsia: #db2777; /* Pink 600 */
-  --glow-violet: rgba(79, 70, 229, 0.04);
-  --glow-cyan: rgba(13, 148, 136, 0.02);
-  --text-primary: #0f172a; /* Slate 900 */
-  --text-secondary: #475569; /* Slate 600 */
-  --border-color: #e2e8f0; /* Slate 200 */
+  /* Background layers — true black ladder */
+  --bg-void:      #000000;
+  --bg-primary:   #030304;
+  --bg-surface:   #060608;
+  --bg-surface-2: #0a0a0d;
+  --bg-elevated:  #101013;
+  --bg-raised:    #16161a;
+
+  /* Text scale — pure white at descending opacity */
+  --text-primary:   #fafafa;
+  --text-secondary: #a1a1aa;
+  --text-tertiary:  #71717a;
+  --text-muted:     #52525b;
+  --text-faint:     #3f3f46;
+
+  /* Borders — white at descending opacity (the only "color" allowed) */
+  --border-subtle:  rgba(255, 255, 255, 0.05);
+  --border-default: rgba(255, 255, 255, 0.08);
+  --border-strong:  rgba(255, 255, 255, 0.14);
+  --border-active:  rgba(255, 255, 255, 0.22);
+
+  /* Shadows — pure black depth */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.6);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.7), 0 1px 2px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.8), 0 4px 8px rgba(0, 0, 0, 0.6);
+  --shadow-xl: 0 24px 64px rgba(0, 0, 0, 0.9), 0 8px 16px rgba(0, 0, 0, 0.7);
+  --shadow-glow: 0 0 24px rgba(255, 255, 255, 0.06);
+
+  /* Easings */
+  --ease-spring:   cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-smooth:   cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out:   cubic-bezier(0.65, 0, 0.35, 1);
+
+  /* Layout */
+  --sidebar-w-expanded: 264px;
+  --sidebar-w-collapsed: 68px;
 }
 
 .dark {
-  --bg-primary: #0b0f19; /* Cool Dark Blue/Slate */
-  --bg-surface: #121826; /* Card Dark Surface */
-  --accent-violet: #818cf8; /* Indigo 400 */
-  --accent-cyan: #2dd4bf; /* Teal 400 */
-  --accent-fuchsia: #f472b6; /* Pink 400 */
-  --glow-violet: rgba(129, 140, 248, 0.06);
-  --glow-cyan: rgba(45, 212, 191, 0.04);
-  --text-primary: #f8fafc; /* Slate 50 */
-  --text-secondary: #94a3b8; /* Slate 400 */
-  --border-color: #1e293b; /* Slate 800 */
+  --bg-void: #000;
+  --bg-primary: #020203;
 }
 
-/* ── Base ────────────────────────────────────────────────────────────────── */
+/* ── 2. Base ───────────────────────────────────────────────────────────── */
 html {
-  color-scheme: light dark;
+  color-scheme: dark;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
 body {
   background: var(--bg-primary);
   color: var(--text-primary);
-  font-family: "Inter", system-ui, -apple-system, sans-serif;
+  font-family: "Inter", "Geist", system-ui, -apple-system, sans-serif;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11", "ss01";
+  letter-spacing: -0.011em;
   min-height: 100dvh;
   overflow-x: hidden;
 }
 
-/* Ambient soft background gradient */
-body::before {
+/* ── 3. Ambient Night Layer ────────────────────────────────────────────── */
+/* Two ultra-subtle white radial glows — like distant moonlight. Opacity kept
+   extremely low so the background reads as pure black, not grey. */
+.aurora-bg {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  overflow: hidden;
+}
+
+.aurora-bg::before,
+.aurora-bg::after {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(140px);
+  opacity: 0.10;
+  animation: aurora-drift 32s ease-in-out infinite alternate;
+}
+
+.aurora-bg::before {
+  width: 55vw;
+  height: 55vw;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.5), transparent 65%);
+  top: -15%;
+  left: -10%;
+}
+
+.aurora-bg::after {
+  width: 45vw;
+  height: 45vw;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.35), transparent 65%);
+  bottom: -15%;
+  right: -10%;
+  animation-delay: -12s;
+}
+
+/* Vignette — darkens edges, focuses the eye to center */
+.vignette::after {
   content: "";
   position: fixed;
   inset: 0;
-  background:
-    radial-gradient(ellipse 80% 60% at 20% 10%, var(--glow-violet), transparent),
-    radial-gradient(ellipse 60% 50% at 80% 90%, var(--glow-cyan), transparent);
   pointer-events: none;
-  z-index: 0;
+  z-index: 1;
+  background: radial-gradient(ellipse 80% 60% at 50% 50%, transparent 40%, rgba(0, 0, 0, 0.5) 100%);
 }
 
-/* ── Animation Utilities ────────────────────────────────────────────────── */
-@keyframes pulse-ring {
-  0% {
-    transform: scale(0.8);
-    opacity: 0.6;
-  }
-  70% {
-    transform: scale(1.3);
-    opacity: 0;
-  }
-  100% {
-    transform: scale(1.3);
-    opacity: 0;
-  }
+/* Film-grain noise — adds tactile texture, breaks up flat black */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+  opacity: 0.03;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' /%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' /%3E%3C/svg%3E");
+}
+
+@keyframes aurora-drift {
+  0%   { transform: translate(0, 0) scale(1); }
+  100% { transform: translate(60px, 40px) scale(1.15); }
+}
+
+/* ── 4. Typography ─────────────────────────────────────────────────────── */
+.font-display {
+  font-family: "Geist", "Inter", system-ui, sans-serif;
+  letter-spacing: -0.028em;
+}
+
+.text-eyebrow {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.text-mono {
+  font-family: "JetBrains Mono", ui-monospace, "SF Mono", monospace;
+  font-feature-settings: "ss02", "ss05";
+}
+
+/* ── 5. Animation Utilities ────────────────────────────────────────────── */
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 16px rgba(255, 255, 255, 0.04); }
+  50%      { box-shadow: 0 0 32px rgba(255, 255, 255, 0.10); }
 }
 
 @keyframes shimmer {
-  0% {
-    background-position: -200% 0;
-  }
-  100% {
-    background-position: 200% 0;
-  }
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
 }
 
 @keyframes float {
-  0%, 100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-6px);
-  }
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-3px); }
 }
+
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+@keyframes slide-in-right {
+  from { opacity: 0; transform: translateX(24px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes slide-in-left-drawer {
+  from { transform: translateX(100%); }
+  to   { transform: translateX(0); }
+}
+
+@keyframes pulse-ring {
+  0%   { transform: scale(0.95); opacity: 0.7; }
+  100% { transform: scale(1.8);  opacity: 0; }
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.4; }
+}
+
+.animate-glow            { animation: pulse-glow 4s ease-in-out infinite; }
+.animate-float           { animation: float 5s ease-in-out infinite; }
+.animate-fade-in-up      { animation: fade-in-up 0.5s var(--ease-out-expo) both; }
+.animate-fade-in         { animation: fade-in 0.3s var(--ease-smooth) both; }
+.animate-scale-in        { animation: scale-in 0.3s var(--ease-spring) both; }
+.animate-slide-in-right  { animation: slide-in-right 0.4s var(--ease-out-expo) both; }
+.animate-slideLeft       { animation: slide-in-left-drawer 0.45s var(--ease-out-expo) both; }
+.animate-blink           { animation: blink 2s ease-in-out infinite; }
 
 .animate-shimmer {
   background: linear-gradient(
     90deg,
     transparent 0%,
-    rgba(0, 0, 0, 0.02) 50%,
+    rgba(255, 255, 255, 0.04) 50%,
     transparent 100%
   );
   background-size: 200% 100%;
-  animation: shimmer 2s ease-in-out infinite;
+  animation: shimmer 2.8s ease-in-out infinite;
 }
 
-.animate-float {
-  animation: float 3s ease-in-out infinite;
+/* Staggered entrance — apply to a parent */
+.stagger > * { animation: fade-in-up 0.5s var(--ease-out-expo) both; }
+.stagger > *:nth-child(1) { animation-delay: 0.03s; }
+.stagger > *:nth-child(2) { animation-delay: 0.06s; }
+.stagger > *:nth-child(3) { animation-delay: 0.09s; }
+.stagger > *:nth-child(4) { animation-delay: 0.12s; }
+.stagger > *:nth-child(5) { animation-delay: 0.15s; }
+.stagger > *:nth-child(6) { animation-delay: 0.18s; }
+.stagger > *:nth-child(7) { animation-delay: 0.21s; }
+.stagger > *:nth-child(8) { animation-delay: 0.24s; }
+
+/* ── 6. Glass Panels ───────────────────────────────────────────────────── */
+.glass-panel {
+  background: linear-gradient(180deg, rgba(20, 20, 24, 0.55) 0%, rgba(8, 8, 10, 0.65) 100%);
+  backdrop-filter: blur(24px) saturate(120%);
+  -webkit-backdrop-filter: blur(24px) saturate(120%);
+  border: 1px solid var(--border-subtle);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.03),
+    var(--shadow-lg);
 }
 
-/* Staggered ping for loading rings */
-.animation-delay-200 {
-  animation-delay: 200ms;
+.glass-panel-strong {
+  background: linear-gradient(180deg, rgba(28, 28, 32, 0.85) 0%, rgba(12, 12, 14, 0.92) 100%);
+  backdrop-filter: blur(32px) saturate(130%);
+  -webkit-backdrop-filter: blur(32px) saturate(130%);
+  border: 1px solid var(--border-default);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    var(--shadow-xl);
 }
 
-.animation-delay-400 {
-  animation-delay: 400ms;
+/* Legacy aliases — preserved for components that already use them */
+.cyber-panel {
+  background: rgba(8, 8, 10, 0.55);
+  backdrop-filter: blur(24px) saturate(120%);
+  -webkit-backdrop-filter: blur(24px) saturate(120%);
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-lg);
 }
 
-/* ── Card Styles ───────────────────────────────────────────────────────── */
-.glass {
+.cyber-panel-elevated {
+  background: rgba(20, 20, 24, 0.85);
+  backdrop-filter: blur(32px) saturate(130%);
+  -webkit-backdrop-filter: blur(32px) saturate(130%);
+  border: 1px solid var(--border-default);
+  box-shadow: var(--shadow-xl);
+}
+
+/* Gradient border — white-on-black hairline using mask-composite */
+.gradient-border {
+  position: relative;
   background: var(--bg-surface);
-  border: 1px solid var(--border-color);
-  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.02), 0 1px 2px -1px rgba(0, 0, 0, 0.02);
+  border-radius: inherit;
+}
+.gradient-border::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  padding: 1px;
+  border-radius: inherit;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0.05) 50%, rgba(255, 255, 255, 0.2));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+  pointer-events: none;
 }
 
-.glass-strong {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-color);
-  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.04), 0 4px 6px -4px rgba(0, 0, 0, 0.04);
+/* Glow border utilities — monochrome */
+.glow-border      { border: 1px solid var(--border-active); box-shadow: 0 0 24px rgba(255, 255, 255, 0.05); }
+.glow-border-cyan { border: 1px solid var(--border-strong); box-shadow: 0 0 24px rgba(255, 255, 255, 0.04); }
+.glow-border-neon { border: 1px solid var(--border-strong); box-shadow: 0 0 24px rgba(255, 255, 255, 0.04); }
+
+/* ── 7. Button System ──────────────────────────────────────────────────── */
+.btn-primary {
+  background: linear-gradient(180deg, #fafafa 0%, #d4d4d8 100%);
+  color: #000;
+  font-weight: 600;
+  border-radius: 10px;
+  transition: all 0.25s var(--ease-spring);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.5) inset, 0 4px 12px rgba(0, 0, 0, 0.5);
+}
+.btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.6) inset, 0 8px 20px rgba(0, 0, 0, 0.6), 0 0 24px rgba(255, 255, 255, 0.1);
+}
+.btn-primary:active { transform: translateY(0); }
+
+.btn-ghost {
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-secondary);
+  font-weight: 500;
+  border-radius: 10px;
+  border: 1px solid var(--border-subtle);
+  transition: all 0.2s var(--ease-smooth);
+}
+.btn-ghost:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+  border-color: var(--border-default);
 }
 
-/* ── Scrollbar ──────────────────────────────────────────────────────────── */
-::-webkit-scrollbar {
-  width: 6px;
+/* ── 8. Sidebar Collapse Transition ────────────────────────────────────── */
+.sidebar-shell {
+  width: var(--sidebar-w-expanded);
+  transition: width 0.4s var(--ease-out-expo);
 }
-::-webkit-scrollbar-track {
-  background: transparent;
+.sidebar-shell.collapsed {
+  width: var(--sidebar-w-collapsed);
 }
+
+/* Label fade — collapses width AND opacity together for smooth feel */
+.sidebar-label {
+  transition: opacity 0.2s var(--ease-smooth), width 0.3s var(--ease-out-expo);
+  overflow: hidden;
+  white-space: nowrap;
+}
+.sidebar-shell.collapsed .sidebar-label {
+  opacity: 0;
+  width: 0;
+  pointer-events: none;
+}
+
+/* ── 9. Custom Range Slider ────────────────────────────────────────────── */
+.custom-slider {
+  -webkit-appearance: none;
+  width: 100%;
+  height: 3px;
+  background: linear-gradient(
+    90deg,
+    #fafafa 0%,
+    #fafafa var(--value, 50%),
+    rgba(255, 255, 255, 0.08) var(--value, 50%),
+    rgba(255, 255, 255, 0.08) 100%
+  );
+  border-radius: 99px;
+  outline: none;
+}
+.custom-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fafafa;
+  cursor: pointer;
+  box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.12), 0 2px 8px rgba(0, 0, 0, 0.6);
+  transition: all 0.15s var(--ease-spring);
+}
+.custom-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.25);
+  box-shadow: 0 0 0 6px rgba(255, 255, 255, 0.18), 0 4px 12px rgba(0, 0, 0, 0.7);
+}
+.custom-slider::-moz-range-thumb {
+  width: 14px; height: 14px; border-radius: 50%;
+  background: #fafafa; cursor: pointer; border: none;
+  box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.12);
+}
+
+/* ── 10. Timeline ──────────────────────────────────────────────────────── */
+.timeline-track-bg {
+  background:
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.02) 0 1px, transparent 1px 40px),
+    linear-gradient(180deg, rgba(0, 0, 0, 0.4), rgba(0, 0, 0, 0.1));
+}
+
+.timeline-playhead {
+  width: 1px;
+  background: #fafafa;
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.7), 0 0 12px rgba(255, 255, 255, 0.4);
+  z-index: 30;
+}
+
+.timeline-clip-video {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.10) 0%, rgba(255, 255, 255, 0.04) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.timeline-clip-audio {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.07) 0%, rgba(255, 255, 255, 0.02) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+/* ── 11. Scrollbar ─────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.1);
-  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 99px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  transition: background 0.2s ease;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 0, 0, 0.18);
+  background: rgba(255, 255, 255, 0.15);
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
 
-/* ── Video mirror (for local preview) ───────────────────────────────────── */
-.mirror {
-  transform: scaleX(-1);
+/* ── 12. Focus & Selection ─────────────────────────────────────────────── */
+:focus-visible {
+  outline: 1px solid rgba(255, 255, 255, 0.5);
+  outline-offset: 2px;
+  border-radius: 4px;
 }
 
-/* ── Selection ──────────────────────────────────────────────────────────── */
 ::selection {
-  background: var(--accent-violet);
-  color: white;
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
 }
+
+/* ── 13. Misc Utilities ────────────────────────────────────────────────── */
+.mirror { transform: scaleX(-1); }
+
+/* Kbd shortcut hint */
+.kbd {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.4);
+}
+
+/* Active nav pill — monochrome elevated surface with hairline border + soft glow */
+.nav-pill-indicator {
+  position: absolute;
+  inset: 0;
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.03));
+  border: 1px solid var(--border-active);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 0 20px rgba(255, 255, 255, 0.04);
+  z-index: 0;
+}
+
+/* Active nav left bar — thin vertical accent */
+.nav-active-bar {
+  position: absolute;
+  left: -8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 2px;
+  height: 16px;
+  background: #fafafa;
+  border-radius: 99px;
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.6);
+}
+
+.nav-item {
+  position: relative;
+  z-index: 1;
+  transition: all 0.25s var(--ease-smooth);
+}
+.nav-item:hover { transform: translateX(2px); }
+
+/* Status dot — green glow (online / LIVE indicators) */
+.status-dot {
+  position: relative;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 8px rgba(34, 197, 94, 0.7);
+}
+.status-dot::after {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+  background: #22c55e;
+  animation: pulse-ring 1.8s var(--ease-smooth) infinite;
+}
+
+/* LIVE badge dot — small green glowing dot for live indicators */
+.live-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 6px rgba(34, 197, 94, 0.9);
+}
+
+/* Collapsed-sidebar tooltip — appears to the right of icon when sidebar is collapsed */
+.sidebar-tooltip {
+  position: absolute;
+  left: calc(100% + 12px);
+  top: 50%;
+  transform: translateY(-50%) translateX(-4px);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border-default);
+  box-shadow: var(--shadow-lg);
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: all 0.18s var(--ease-smooth);
+  z-index: 100;
+}
+.sidebar-shell.collapsed .nav-item:hover .sidebar-tooltip,
+.sidebar-shell.collapsed .sidebar-tooltip-target:hover .sidebar-tooltip {
+  opacity: 1;
+  transform: translateY(-50%) translateX(0);
+}
+
+/* Top hairline for active panel separator */
+.hairline-top {
+  position: relative;
+}
+.hairline-top::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--border-default) 20%, var(--border-default) 80%, transparent);
+}
+
+/* ── 14. Cursor Spotlight ─────────────────────────────────────────────── */
+/* A soft white radial that follows the cursor on the main canvas.
+   - Driven by CSS vars --mx, --my (set via JS on the container element)
+   - Opacity 0.035 — visible only on pure black, invisible over content
+   - Pointer-events none so it never blocks clicks
+   - Visibility tied to --spotlight-active (1 = on, 0 = off) */
+.spotlight-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 3;
+  background: radial-gradient(
+    circle 600px at var(--mx, 50%) var(--my, 50%),
+    rgba(255, 255, 255, 0.035),
+    transparent 60%
+  );
+  opacity: var(--spotlight-active, 0);
+  transition: opacity 0.4s var(--ease-smooth);
+  mix-blend-mode: screen;
+}
+
+/* ── 15. Command Palette ──────────────────────────────────────────────── */
+.cmdk-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(8px) saturate(120%);
+  -webkit-backdrop-filter: blur(8px) saturate(120%);
+  animation: fade-in 0.18s var(--ease-smooth) both;
+}
+
+.cmdk-shell {
+  position: fixed;
+  top: 18vh;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 101;
+  width: min(640px, 92vw);
+  max-height: 60vh;
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(180deg, rgba(22, 22, 26, 0.95) 0%, rgba(8, 8, 10, 0.98) 100%);
+  backdrop-filter: blur(32px) saturate(140%);
+  -webkit-backdrop-filter: blur(32px) saturate(140%);
+  border: 1px solid var(--border-default);
+  border-radius: 16px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 24px 64px rgba(0, 0, 0, 0.9),
+    0 0 0 1px rgba(255, 255, 255, 0.02);
+  animation: cmdk-in 0.22s var(--ease-out-expo) both;
+  overflow: hidden;
+}
+
+@keyframes cmdk-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(-8px) scale(0.98); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0)    scale(1); }
+}
+
+.cmdk-input-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.cmdk-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+.cmdk-input::placeholder {
+  color: var(--text-faint);
+}
+
+.cmdk-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.cmdk-group-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  padding: 12px 12px 6px;
+}
+
+.cmdk-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.12s var(--ease-smooth);
+  position: relative;
+}
+.cmdk-row[data-active="true"] {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.025));
+}
+.cmdk-row[data-active="true"]::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 8px; bottom: 8px;
+  width: 2px;
+  background: #fafafa;
+  border-radius: 99px;
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.5);
+}
+
+.cmdk-row-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+.cmdk-row[data-active="true"] .cmdk-row-icon {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+}
+
+.cmdk-row-label {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.cmdk-row-title {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  letter-spacing: -0.01em;
+}
+.cmdk-row[data-active="true"] .cmdk-row-title { color: var(--text-primary); }
+.cmdk-row-sub {
+  font-size: 11px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cmdk-row-kbd {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+}
+
+.cmdk-footer {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border-subtle);
+  background: rgba(0, 0, 0, 0.3);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.cmdk-footer kbd {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 10px;
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  margin-right: 4px;
+}
+
+.cmdk-empty {
+  padding: 32px 16px;
+  text-align: center;
+  color: var(--text-faint);
+  font-size: 13px;
+}
+
+/* Asset thumbnail in palette rows — replaces icon when present */
+.cmdk-row-thumbnail {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  object-fit: cover;
+  flex-shrink: 0;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+}
+
+/* Loading state for asset rows */
+.cmdk-row[data-active="true"] .cmdk-row-thumbnail {
+  border-color: var(--border-default);
+}
+
+/* ── 16. Boot-Up Sequence ─────────────────────────────────────────────── */
+/* One-shot entrance animations. Applied on mount; CSS `both` fill-mode
+   keeps the element in its final state after the animation completes.
+   Since React keys preserve DOM nodes across re-renders, these only
+   play once per mount (not on every tab switch). */
+
+@keyframes boot-logo {
+  from { opacity: 0; transform: scale(0.82); filter: blur(6px); }
+  to   { opacity: 1; transform: scale(1);    filter: blur(0); }
+}
+
+@keyframes boot-fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes boot-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes boot-slide-right {
+  from { opacity: 0; transform: translateX(-12px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+.boot-logo        { animation: boot-logo 0.6s var(--ease-out-expo) both; }
+.boot-fade        { animation: boot-fade 0.5s var(--ease-smooth) both; }
+.boot-fade-up     { animation: boot-fade-up 0.5s var(--ease-out-expo) both; }
+.boot-slide-right { animation: boot-slide-right 0.5s var(--ease-out-expo) both; }
+
+/* Staggered boot delays — chain with .boot-* classes */
+.boot-d-1 { animation-delay: 0.08s; }
+.boot-d-2 { animation-delay: 0.14s; }
+.boot-d-3 { animation-delay: 0.20s; }
+.boot-d-4 { animation-delay: 0.26s; }
+.boot-d-5 { animation-delay: 0.32s; }
+.boot-d-6 { animation-delay: 0.38s; }
+.boot-d-7 { animation-delay: 0.44s; }
+.boot-d-8 { animation-delay: 0.50s; }
+
+/* ── 17. Shine Hover Card (exact user snippet) ────────────────────────── */
+.fx-hover-shine-card { position: relative; width: 100%; height: 100%; min-height: 120px; border-radius: 14px; overflow: hidden; cursor: pointer; }
+.fx-hover-shine-card-inner { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #fff; font-weight: 700; font-size: 20px; box-shadow: 0 12px 30px -10px rgba(99,102,241,0.5); }
+.fx-hover-shine-card::before { content: ""; position: absolute; top: 0; left: -150%; width: 80%; height: 100%; background: linear-gradient(120deg, transparent, rgba(255,255,255,0.4), transparent); transform: skewX(-25deg); transition: left 0.7s ease; z-index: 1; pointer-events: none; }
+.fx-hover-shine-card:hover::before { left: 150%; }
+
+/* ── 18. Book Loader (exact user snippet) ─────────────────────────────── */
+.fx-loader-book { position: relative; width: 50px; height: 36px; perspective: 200px; }
+.fx-loader-book-page { position: absolute; inset: 0; background: linear-gradient(90deg, #8b5cf6, #ec4899); transform-origin: left center; transform-style: preserve-3d; animation: fx-book-flip 2s ease-in-out infinite; border-radius: 0 4px 4px 0; }
+.fx-loader-book-page:nth-child(2) { animation-delay: 0.25s; opacity: 0.85; }
+.fx-loader-book-page:nth-child(3) { animation-delay: 0.5s; opacity: 0.7; }
+.fx-loader-book-page:nth-child(4) { animation-delay: 0.75s; opacity: 0.55; }
+@keyframes fx-book-flip { 0%, 100% { transform: rotateY(0deg); } 50% { transform: rotateY(-160deg); } }
