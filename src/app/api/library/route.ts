@@ -14,6 +14,7 @@ import { supabaseAdmin } from "@/lib/supabase/server";
 import { getUserAssets, addAsset, deleteAsset } from "@/lib/library";
 import { sanitizeInput } from "@/lib/sanitize";
 import { verifyMediaToken } from "@/lib/jwt";
+import { apiError } from "@/lib/api";
 import crypto from "crypto";
 
 export async function GET() {
@@ -25,12 +26,8 @@ export async function GET() {
 
     const assets = await getUserAssets(currentUser.id);
     return NextResponse.json({ success: true, assets });
-  } catch (err: any) {
-    console.error("[library-api] GET error:", err.message);
-    return NextResponse.json(
-      { error: err.message || "Failed to retrieve library assets." },
-      { status: 500 }
-    );
+  } catch (err) {
+    return apiError(err, "Failed to retrieve library assets.", 500);
   }
 }
 
@@ -67,18 +64,27 @@ export async function POST(request: Request) {
     const generatedId = crypto.randomUUID();
 
     // ── Intercept JWT tokens and convert to persistent ID URLs ────────────
-    if (url.includes("/api/library/media?token=")) {
+    // Parse the URL robustly so any param ordering (e.g. ?id=..&token=.., or
+    // a hash/encoded form) is handled, rather than a fragile substring match.
+    try {
       const urlObj = new URL(url, "http://localhost");
-      const token = urlObj.searchParams.get("token");
-      if (token) {
-        const payload = await verifyMediaToken(token);
-        if (payload && payload.userId === currentUser.id) {
-          telegramFileId = payload.fileId;
-          finalUrl = `/api/library/media?id=${generatedId}`;
-        } else {
-          return NextResponse.json({ error: "Invalid or expired media token." }, { status: 403 });
+      if (urlObj.pathname === "/api/library/media") {
+        const token = urlObj.searchParams.get("token");
+        if (token) {
+          const payload = await verifyMediaToken(token);
+          if (payload && payload.userId === currentUser.id) {
+            telegramFileId = payload.fileId;
+            finalUrl = `/api/library/media?id=${generatedId}`;
+          } else {
+            return NextResponse.json(
+              { error: "Invalid or expired media token." },
+              { status: 403 }
+            );
+          }
         }
       }
+    } catch {
+      // Not a parseable URL — keep finalUrl as-is.
     }
 
     const asset = await addAsset({
@@ -99,12 +105,8 @@ export async function POST(request: Request) {
       success: true,
       asset,
     });
-  } catch (err: any) {
-    console.error("[library-api] POST error:", err.message);
-    return NextResponse.json(
-      { error: err.message || "Failed to save library asset." },
-      { status: 500 }
-    );
+  } catch (err) {
+    return apiError(err, "Failed to save library asset.", 500);
   }
 }
 
@@ -139,12 +141,8 @@ export async function DELETE(request: Request) {
     return NextResponse.json({
       success: true,
     });
-  } catch (err: any) {
-    console.error("[library-api] DELETE error:", err.message);
-    return NextResponse.json(
-      { error: err.message || "Failed to delete library asset." },
-      { status: 500 }
-    );
+  } catch (err) {
+    return apiError(err, "Failed to delete library asset.", 500);
   }
 }
 
@@ -180,11 +178,7 @@ export async function PATCH(request: Request) {
     }
 
     return NextResponse.json({ success: true });
-  } catch (err: any) {
-    console.error("[library-api] PATCH error:", err.message);
-    return NextResponse.json(
-      { error: err.message || "Failed to update library asset." },
-      { status: 500 }
-    );
+  } catch (err) {
+    return apiError(err, "Failed to update library asset.", 500);
   }
 }

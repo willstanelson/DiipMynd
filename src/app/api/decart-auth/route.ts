@@ -10,6 +10,7 @@
 import { NextResponse } from "next/server";
 import { createDecartClient } from "@decartai/sdk";
 import { getCurrentUser } from "@/lib/auth";
+import { apiError } from "@/lib/api";
 
 /**
  * POST /api/decart-auth
@@ -55,17 +56,26 @@ export async function POST() {
       allowedModels: ["lucy-2.1"],
     });
 
+    // Defense in depth: never ship the master key to the browser. If the SDK
+    // contract ever changed and tokens.create returned the master key, this
+    // guard would catch it rather than silently leaking it. Fixes L5.
+    const returnedKey = token?.apiKey;
+    if (!returnedKey || returnedKey === apiKey) {
+      console.error("[decart-auth] Token minting returned an unexpected key shape.");
+      return NextResponse.json(
+        { error: "Failed to generate a valid session token." },
+        { status: 500 }
+      );
+    }
+
     // Calculate the absolute expiry timestamp
     const expiresAt = Date.now() + 300 * 1000;
 
     return NextResponse.json({
-      apiKey: token.apiKey,
+      apiKey: returnedKey,
       expiresAt,
     });
-  } catch (err: unknown) {
-    const msg =
-      err instanceof Error ? err.message : "Failed to generate Decart token.";
-    console.error("[decart-auth] Token generation failed:", msg);
-    return NextResponse.json({ error: msg }, { status: 500 });
+  } catch (err) {
+    return apiError(err, "Failed to generate Decart token.", 500);
   }
 }

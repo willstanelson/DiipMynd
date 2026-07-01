@@ -10,6 +10,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { isTelegramStorageEnabled, uploadBufferToTelegram } from "@/lib/telegram";
 import { createMediaToken } from "@/lib/jwt";
+import { apiError } from "@/lib/api";
 import fs from "fs/promises";
 import path from "path";
 
@@ -84,11 +85,7 @@ export async function POST(request: Request) {
       storage: "local",
     });
   } catch (err: any) {
-    console.error("[upload-api] Fatal upload error:", err.message);
-    return NextResponse.json(
-      { error: err.message || "Failed to process and store uploaded file." },
-      { status: 500 }
-    );
+    return apiError(err, "Failed to process and store uploaded file.", 500);
   }
 }
 

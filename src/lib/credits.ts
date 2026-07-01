@@ -119,6 +119,60 @@ export async function adjustCredits(
 }
 
 /**
+ * Atomically reserves (deducts) credits only if the balance is sufficient.
+ *
+ * Unlike adjustCredits (which throws on insufficient funds but otherwise deducts
+ * unconditionally), this returns `{ ok: false }` when the balance is too low,
+ * without throwing — intended for the "reserve before queuing" pattern.
+ *
+ * Fixes audit finding H3: a naive `if (credits >= cost)` check followed by an
+ * async queue insert is a TOCTOU race — many concurrent requests all pass the
+ * check, then all execute and overdraw. This helper performs a single atomic
+ * conditional deduction at the database.
+ *
+ * @returns `{ ok: true, balance }` on success, or `{ ok: false }` if insufficient.
+ */
+export async function reserveCredits(
+  userId: string,
+  amount: number,
+  reason?: string,
+  source?: string
+): Promise<{ ok: true; balance: number } | { ok: false; available: number }> {
+  if (amount <= 0) {
+    throw new Error("reserveCredits: amount must be greater than zero.");
+  }
+
+  try {
+    const { data, error } = await supabaseAdmin.rpc("adjust_credits", {
+      p_user_id: userId,
+      p_delta: -amount,
+      p_reason: reason,
+      p_source: source,
+    });
+
+    if (error) {
+      const msg = error.message || "";
+      if (msg.includes("Insufficient credits")) {
+        const match = msg.match(/have (\d+)/);
+        return { ok: false, available: match ? parseInt(match[1], 10) : 0 };
+      }
+      throw new Error(`Credit reservation failed: ${msg}`);
+    }
+
+    const balance = Array.isArray(data) ? data[0]?.new_balance : data;
+    if (typeof balance !== "number") {
+      throw new Error("Unexpected RPC response format for reserveCredits.");
+    }
+    return { ok: true, balance };
+  } catch (err) {
+    if (err instanceof InsufficientCreditsError) {
+      return { ok: false, available: err.available };
+    }
+    throw err;
+  }
+}
+
+/**
  * Non-atomic fallback for when the RPC function hasn't been deployed.
  * This is NOT safe under concurrent load — it exists only as a development
  * convenience. Deploy the SQL migration for production use.

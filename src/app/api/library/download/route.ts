@@ -11,6 +11,8 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { isTelegramStorageEnabled, uploadUrlToTelegram } from "@/lib/telegram";
 import { createMediaToken } from "@/lib/jwt";
+import { safeFetchToBuffer, validateFetchUrl, SafeFetchError } from "@/lib/safeFetch";
+import { apiError } from "@/lib/api";
 import fs from "fs/promises";
 import path from "path";
 
@@ -33,36 +35,12 @@ export async function POST(request: Request) {
       );
     }
 
-    // SSRF Guard: Validate target URL host to prevent internal network scanning
+    // SSRF Guard: validate scheme + host allowlist via the shared helper.
     try {
-      const parsedUrl = new URL(url);
-      const allowedHosts = [
-        "fal.run",
-        "fal.media",
-        "fal.ai",
-        "supabase.co",
-        "googleusercontent.com",
-        "googleapis.com",
-        "runwayml.com",
-        "runway.com",
-        "dev.runwayml.com",
-      ];
-      
-      const isAllowed = allowedHosts.some(
-        (host) => parsedUrl.hostname === host || parsedUrl.hostname.endsWith(`.${host}`)
-      );
-      
-      if (!isAllowed) {
-        return NextResponse.json(
-          { error: "Forbidden target URL. Only media assets from trusted AI CDNs are allowed." },
-          { status: 400 }
-        );
-      }
-    } catch {
-      return NextResponse.json(
-        { error: "Invalid target URL format." },
-        { status: 400 }
-      );
+      validateFetchUrl(url);
+    } catch (err) {
+      const msg = err instanceof SafeFetchError ? err.message : "Invalid target URL.";
+      return NextResponse.json({ error: msg }, { status: 400 });
     }
 
     // 3. Sanitize filename and enforce unique timestamp
@@ -93,24 +71,14 @@ export async function POST(request: Request) {
       }
     }
 
-    // 5. Fallback: Save locally in public/library/
+    // 5. Fallback: Save locally in public/library/ (size-capped, SSRF-safe).
     console.log(`[download-api] Saving file to local disk: ${sanitizedName}`);
     const localLibraryDir = path.join(process.cwd(), "public", "library");
     await fs.mkdir(localLibraryDir, { recursive: true });
 
-    // Download from Fal.ai CDN
-    const response = await fetch(url, { redirect: "manual" });
-    if (response.status >= 300 && response.status < 400) {
-      throw new Error(`SSRF Prevention: Redirects are not allowed. Status: ${response.status}`);
-    }
-    if (!response.ok) {
-      throw new Error(`Failed to fetch media from source CDN. Status: ${response.status}`);
-    }
-
-    const arrayBuffer = await response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
+    const { buffer } = await safeFetchToBuffer(url, { maxBytes: 50 * 1024 * 1024 });
     const localFilePath = path.join(localLibraryDir, sanitizedName);
-    
+
     await fs.writeFile(localFilePath, buffer);
     const localUrl = `/library/${sanitizedName}`;
 
@@ -121,10 +89,9 @@ export async function POST(request: Request) {
       fileName: sanitizedName,
     });
   } catch (err: any) {
-    console.error("[download-api] Fatal download error:", err.message);
-    return NextResponse.json(
-      { error: err.message || "Failed to download and store asset." },
-      { status: 500 }
-    );
+    if (err instanceof SafeFetchError) {
+      return NextResponse.json({ error: err.message }, { status: 400 });
+    }
+    return apiError(err, "Failed to download and store asset.", 500);
   }
 }

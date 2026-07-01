@@ -9,6 +9,7 @@
 
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
+import { apiError } from "@/lib/api";
 
 // Packages definition with exact prices in Kobo (₦1 = 100 kobo)
 const PAYSTACK_PACKAGES: Record<string, { amountKobo: number; name: string }> = {
@@ -84,9 +85,7 @@ export async function POST(request: Request) {
       success: true,
       authorizationUrl: paystackData.data.authorization_url,
     });
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "Checkout initialization failed.";
-    console.error("[paystack-init] Error:", msg);
-    return NextResponse.json({ error: msg }, { status: 500 });
+  } catch (err) {
+    return apiError(err, "Checkout initialization failed.", 500);
   }
 }

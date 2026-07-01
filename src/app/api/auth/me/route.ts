@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
+import { apiError } from "@/lib/api";
 
 export async function GET() {
   try {
@@ -8,9 +9,7 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     return NextResponse.json({ user });
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "Failed to fetch user state";
-    console.error("[auth-me] Error fetching session user:", msg);
-    return NextResponse.json({ error: msg }, { status: 500 });
+  } catch (err) {
+    return apiError(err, "Failed to fetch user state.", 500);
   }
 }

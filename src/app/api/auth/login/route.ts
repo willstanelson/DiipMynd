@@ -8,22 +8,22 @@
 // ============================================================================
 
 import { NextResponse } from "next/server";
-import { headers } from "next/headers";
 import { createClientWithCookies } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/rateLimit";
+import { apiError, getClientIp } from "@/lib/api";
 
 export async function POST(request: Request) {
   try {
     // ── Enforce Rate Limiting ─────────────────────────────────────────────
-    const clientHeaders = await headers();
-    const clientIp = clientHeaders.get("x-real-ip") || clientHeaders.get("x-forwarded-for")?.split(",")[0] || "127.0.0.1";
-    
-    // Max 10 attempts per 60 seconds
-    if (await checkRateLimit(`login_${clientIp}`, 10, 60 * 1000)) {
+    const clientIp = await getClientIp();
+    const ipKey = clientIp ? `login_${clientIp}` : "login_anon";
+
+    // Fail-closed: brute-force protection must hold even under DB pressure.
+    if (await checkRateLimit(ipKey, 10, 60 * 1000)) {
       return NextResponse.json(
         { error: "Too many login attempts. Please try again in a minute." },
-        { status: 429 } // 429 Too Many Requests
+        { status: 429 }
       );
     }
 
@@ -52,9 +52,7 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json({ success: true, user });
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "Authentication failed";
-    console.error("[login] Error during login:", msg);
-    return NextResponse.json({ error: msg }, { status: 500 });
+  } catch (err) {
+    return apiError(err, "Authentication failed.", 500);
   }
 }

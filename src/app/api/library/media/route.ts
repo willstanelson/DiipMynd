@@ -11,6 +11,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { getTelegramFileStream } from "@/lib/telegram";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { verifyMediaToken } from "@/lib/jwt";
+import { apiError } from "@/lib/api";
 
 export async function GET(request: Request) {
   try {
@@ -62,26 +63,34 @@ export async function GET(request: Request) {
       fileIdToStream = asset.telegram_file_id;
     }
 
-    if (!fileIdToStream || !/^[A-Za-z0-9_-]{20,200}$/.test(fileIdToStream)) {
+    // Telegram file_ids are opaque ASCII tokens (Base64URL-ish, often 60-120
+    // chars, may include '=' padding). Reject only obvious garbage rather than
+    // risk rejecting a legitimate id via an over-tight regex. Fixes L4.
+    if (
+      !fileIdToStream ||
+      fileIdToStream.length < 10 ||
+      fileIdToStream.length > 512 ||
+      !/^[\w.+=-]+$/.test(fileIdToStream)
+    ) {
       return NextResponse.json({ error: "Invalid file reference." }, { status: 400 });
     }
 
     const { stream, mimeType, size } = await getTelegramFileStream(fileIdToStream);
 
-    // Stream the response back to the client
+    // Cache policy: token-served media is per-user and short-lived, so it must
+    // never land in a shared/intermediary cache. The id-served path is keyed by
+    // an unguessable UUID and owned-rows-only, so private short caching is fine.
+    // Fixes M4 (was: public, immutable, 1 year).
+    const cacheControl = token ? "private, no-store" : "private, max-age=300";
+
     return new Response(stream as any, {
       headers: {
         "Content-Type": mimeType,
         "Content-Length": size.toString(),
-        "Cache-Control": "public, max-age=31536000, immutable",
-        "Accept-Ranges": "bytes", // Helps browsers scroll and buffer videos
+        "Cache-Control": cacheControl,
       },
     });
-  } catch (err: any) {
-    console.error("[telegram-media-proxy] Error streaming Telegram file:", err.message);
-    return NextResponse.json(
-      { error: err.message || "Failed to retrieve media from cloud storage." },
-      { status: 500 }
-    );
+  } catch (err) {
+    return apiError(err, "Failed to retrieve media from cloud storage.", 500);
   }
 }

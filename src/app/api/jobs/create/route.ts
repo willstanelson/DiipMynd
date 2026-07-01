@@ -1,8 +1,24 @@
+// ============================================================================
+// DiipMynd — Job Queue: Create Generation Job
+// POST /api/jobs/create
+//
+// Hardening vs. original (audit findings H3 / H6 / M5):
+//   * Credits are ATOMICALLY RESERVED at queue time (not just checked). The old
+//     `if (credits >= cost)` followed by an async insert was a TOCTOU race that
+//     let concurrent requests overdraw. Reservation is a single conditional
+//     deduction at the DB.
+//   * On success, the queue worker consumes the reservation; on failure it
+//     refunds (see worker/process-queue).
+//   * Trusted IP for rate limiting; sanitized errors.
+// ============================================================================
+
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabase/server";
-import { VIDEO_MODELS, IMAGE_MODELS } from "@/lib/packages";
+import { VIDEO_MODELS, IMAGE_MODELS, AUDIO_MODELS } from "@/lib/packages";
 import { checkRateLimit } from "@/lib/rateLimit";
+import { adjustCredits, reserveCredits } from "@/lib/credits";
+import { apiError, getClientIp } from "@/lib/api";
 
 export async function POST(request: Request) {
   try {
@@ -14,43 +30,57 @@ export async function POST(request: Request) {
     const body = await request.json().catch(() => ({}));
     const { type, payload } = body;
 
-    if (!type || !payload) {
+    if (!type || !payload || typeof payload !== "object") {
       return NextResponse.json({ error: "Missing type or payload." }, { status: 400 });
     }
 
-    // Rate Limit Check
-    const ip = request.headers.get("x-real-ip") || request.headers.get("x-forwarded-for")?.split(",")[0] || "unknown_ip";
-    const userLimited = await checkRateLimit(`jobs_user_${currentUser.id}`, 20, 60 * 1000); // 20 per minute
-    const ipLimited = await checkRateLimit(`jobs_ip_${ip}`, 100, 60 * 1000); // 100 per minute
+    // Rate Limit Check (trusted IP).
+    const ip = await getClientIp();
+    const ipKey = ip ? `jobs_ip_${ip}` : "jobs_ip_anon";
+    const userLimited = await checkRateLimit(`jobs_user_${currentUser.id}`, 20, 60 * 1000);
+    const ipLimited = await checkRateLimit(ipKey, 100, 60 * 1000);
 
     if (userLimited || ipLimited) {
-      return NextResponse.json({ error: "Rate limit exceeded. Please try again later." }, { status: 429 });
+      return NextResponse.json(
+        { error: "Rate limit exceeded. Please try again later." },
+        { status: 429 }
+      );
     }
 
-    // Determine cost to ensure user has enough credits
+    // Determine cost from a recognized model.
     let requiredCredits = 0;
-    if (type === "video" && payload.model) {
-      const model = VIDEO_MODELS.find((m) => m.endpoint === payload.model);
-      if (!model) {
-        return NextResponse.json({ error: "Unknown video model." }, { status: 400 });
-      }
-      requiredCredits = model.creditCost;
-    } else if (type === "image" && payload.model) {
-      const model = IMAGE_MODELS.find((m) => m.endpoint === payload.model);
-      if (!model) {
-        return NextResponse.json({ error: "Unknown image model." }, { status: 400 });
-      }
-      requiredCredits = model.creditCost;
-    } else {
+    const modelPool =
+      type === "video" ? VIDEO_MODELS : type === "image" ? IMAGE_MODELS : type === "audio" ? AUDIO_MODELS : null;
+
+    if (!modelPool || !payload.model) {
       return NextResponse.json({ error: "Unsupported job type." }, { status: 400 });
     }
+    const model = modelPool.find((m) => m.endpoint === payload.model);
+    if (!model) {
+      return NextResponse.json({ error: "Unknown model." }, { status: 400 });
+    }
+    requiredCredits = model.creditCost;
 
-    if (!currentUser.isAdmin && currentUser.credits < requiredCredits) {
-      return NextResponse.json({
-        error: "Insufficient credits to start this generation job.",
-        required: requiredCredits,
-        available: currentUser.credits,
-      }, { status: 402 });
+    // Atomically reserve credits BEFORE queueing. This closes the TOCTOU window:
+    // concurrent requests can't all pass a read-only check and then overdraw.
+    // (Admins are exempt.)
+    if (!currentUser.isAdmin) {
+      const reservation = await reserveCredits(
+        currentUser.id,
+        requiredCredits,
+        `Generation job reserved (${model.endpoint})`,
+        "jobs-create"
+      );
+      if (!reservation.ok) {
+        return NextResponse.json(
+          {
+            error: "Insufficient credits to start this generation job.",
+            required: requiredCredits,
+            available: reservation.available,
+          },
+          { status: 402 }
+        );
+      }
     }
 
     // Insert job into generation_jobs
@@ -66,8 +96,21 @@ export async function POST(request: Request) {
       .single();
 
     if (error) {
-      console.error("[api/jobs/create] DB Insert Error:", error);
-      throw new Error("Failed to queue generation job.");
+      // Queueing failed → refund the reservation we just made.
+      if (!currentUser.isAdmin) {
+        try {
+          await adjustCredits(
+            currentUser.id,
+            requiredCredits, // positive delta = credit back
+            `Refund: job queue insert failed (${model.endpoint})`,
+            "jobs-create-refund"
+          );
+        } catch (refundErr) {
+          console.error(`[api/jobs/create] REFUND FAILED for ${currentUser.id}:`, refundErr);
+        }
+      }
+      console.error("[api/jobs/create] DB Insert Error:", error.message);
+      return NextResponse.json({ error: "Failed to queue generation job." }, { status: 500 });
     }
 
     return NextResponse.json({
@@ -75,8 +118,7 @@ export async function POST(request: Request) {
       jobId: job.id,
       status: job.status,
     });
-  } catch (err: any) {
-    console.error("[api/jobs/create] Exception:", err.message);
-    return NextResponse.json({ error: err.message }, { status: 500 });
+  } catch (err) {
+    return apiError(err, "Failed to create job.", 500);
   }
 }

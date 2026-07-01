@@ -8,22 +8,22 @@
 // ============================================================================
 
 import { NextResponse } from "next/server";
-import { headers } from "next/headers";
 import { createClientWithCookies } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/rateLimit";
+import { apiError, getClientIp } from "@/lib/api";
 
 export async function POST(request: Request) {
   try {
     // ── Enforce Rate Limiting ─────────────────────────────────────────────
-    const clientHeaders = await headers();
-    const clientIp = clientHeaders.get("x-real-ip") || clientHeaders.get("x-forwarded-for")?.split(",")[0] || "127.0.0.1";
-    
-    // Max 3 registrations per 10 minutes (600,000 ms)
-    if (await checkRateLimit(`signup_${clientIp}`, 5, 5 * 60 * 1000)) {
+    const clientIp = await getClientIp();
+    const ipKey = clientIp ? `signup_${clientIp}` : "signup_anon";
+
+    // Fail-closed (default): security-sensitive limit must NOT be bypassed on DB error.
+    if (await checkRateLimit(ipKey, 5, 5 * 60 * 1000)) {
       return NextResponse.json(
         { error: "Too many registration attempts from this network. Please try again later." },
-        { status: 429 } // 429 Too Many Requests
+        { status: 429 }
       );
     }
 
@@ -65,9 +65,7 @@ export async function POST(request: Request) {
         createdAt: data.user.created_at,
       }
     });
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "Registration failed";
-    console.error("[signup] Error during signup:", msg);
-    return NextResponse.json({ error: msg }, { status: 500 });
+  } catch (err) {
+    return apiError(err, "Registration failed.", 500);
   }
 }

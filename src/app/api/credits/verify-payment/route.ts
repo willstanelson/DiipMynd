@@ -15,6 +15,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { adjustCredits, UserNotFoundError } from "@/lib/credits";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { PACKAGE_CREDITS, PACKAGE_PRICES_KOBO } from "@/lib/packages";
+import { apiError } from "@/lib/api";
 
 export async function POST(request: Request) {
   try {
@@ -135,9 +136,6 @@ export async function POST(request: Request) {
     if (err instanceof UserNotFoundError) {
       return NextResponse.json({ error: "User profile not found." }, { status: 404 });
     }
-
-    const msg = err instanceof Error ? err.message : "Internal verification error.";
-    console.error("[verify-payment] Error:", msg);
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return apiError(err, "Internal verification error.", 500);
   }
 }

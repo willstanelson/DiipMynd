@@ -7,6 +7,7 @@
 // ============================================================================
 
 import { Readable } from "stream";
+import { safeFetchToBuffer } from "./safeFetch";
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
@@ -25,16 +26,11 @@ export function isTelegramStorageEnabled(): boolean {
 
 /**
  * Downloads a file from a URL and returns it as a Buffer.
+ * Uses the SSRF-safe fetcher: scheme/host allowlist, no redirects, and a 50 MB
+ * byte cap to prevent memory exhaustion. Fixes audit findings C4/M7.
  */
 async function downloadFile(url: string): Promise<{ buffer: Buffer; mimeType: string }> {
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Failed to download file from CDN. Status: ${response.status}`);
-  }
-  const arrayBuffer = await response.arrayBuffer();
-  const buffer = Buffer.from(arrayBuffer);
-  const mimeType = response.headers.get("content-type") || "application/octet-stream";
-  return { buffer, mimeType };
+  return safeFetchToBuffer(url, { maxBytes: 50 * 1024 * 1024 });
 }
 
 /**
@@ -184,6 +180,11 @@ export async function getTelegramFileStream(fileId: string): Promise<{
 
 /**
  * Deletes a message (media asset) from the Telegram channel.
+ *
+ * Idempotent: a Telegram "message to delete not found" error is treated as
+ * success, because the desired end state (message gone) already holds. This
+ * prevents the cleanup worker from leaving orphaned DB rows that reference a
+ * message which was already removed. Fixes audit finding M6.
  */
 export async function deleteTelegramMessage(chatId: number, messageId: number): Promise<boolean> {
   if (!isTelegramStorageEnabled()) {
@@ -202,11 +203,25 @@ export async function deleteTelegramMessage(chatId: number, messageId: number): 
     }),
   });
 
-  if (!response.ok) {
-    console.error(`[telegram] Failed to delete message ${messageId} in chat ${chatId}: ${response.statusText}`);
-    return false;
+  const data = await response.json().catch(() => null);
+
+  if (response.ok && data?.ok === true) {
+    return true;
   }
 
-  const data = await response.json();
-  return data.ok === true;
+  // Already gone → idempotent success.
+  const description: string = data?.description || "";
+  const alreadyGone =
+    response.status === 400 &&
+    (description.toLowerCase().includes("message to delete not found") ||
+      description.toLowerCase().includes("message not found"));
+
+  if (alreadyGone) {
+    return true;
+  }
+
+  console.error(
+    `[telegram] Failed to delete message ${messageId} in chat ${chatId}: ${description || response.statusText}`
+  );
+  return false;
 }

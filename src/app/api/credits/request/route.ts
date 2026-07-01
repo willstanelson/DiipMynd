@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { sanitizeInput } from "@/lib/sanitize";
+import { apiError } from "@/lib/api";
 
 export async function POST(request: Request) {
   try {
@@ -59,9 +60,7 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json({ success: true });
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "Request failed";
-    console.error("[credits-request] Error:", msg);
-    return NextResponse.json({ error: msg }, { status: 500 });
+  } catch (err) {
+    return apiError(err, "Failed to submit credit request.", 500);
   }
 }

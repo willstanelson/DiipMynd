@@ -10,6 +10,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { adjustCredits, InsufficientCreditsError, UserNotFoundError } from "@/lib/credits";
 import { supabaseAdmin } from "@/lib/supabase/server";
+import { apiError } from "@/lib/api";
 
 export async function POST(request: Request) {
   try {
@@ -96,8 +97,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "User profile not found." }, { status: 404 });
     }
 
-    const msg = err instanceof Error ? err.message : "Failed to process credit deduction.";
-    console.error("[deduct-credits] Exception:", msg);
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return apiError(err, "Failed to process credit deduction.", 500);
   }
 }

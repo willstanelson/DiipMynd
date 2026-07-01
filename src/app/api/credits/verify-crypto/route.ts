@@ -68,6 +68,7 @@ export async function POST(request: Request) {
     }
 
     let isVerified = false;
+    let senderAddress: string | undefined;
 
     // ── Network verification: TRON (TRC-20) ───────────────────────────────
     if (normalizedNetwork === "tron") {
@@ -120,6 +121,7 @@ export async function POST(request: Request) {
           // Allow minor 0.05 USD variance
           if (actualAmountUSD >= expectedUSD - 0.05) {
             isVerified = true;
+            senderAddress = txData.ownerAddress || transfer.from_address || transfer.from;
             break;
           }
         }
@@ -191,6 +193,10 @@ export async function POST(request: Request) {
             // Allow minor 0.05 USD variance
             if (actualAmountUSD >= expectedUSD - 0.05) {
               isVerified = true;
+              // topics[1] is the sender (from), 32-byte padded. Strip padding.
+              const senderTopic = topics[1] || "";
+              const senderHex = `0x${senderTopic.slice(-40)}`.toLowerCase();
+              if (senderHex !== "0x") senderAddress = senderHex;
               break;
             }
           }
@@ -219,6 +225,7 @@ export async function POST(request: Request) {
           status: "approved",
           payment_method: `Crypto (${normalizedNetwork.toUpperCase()})`,
           tx_hash: txHash,
+          sender_address: senderAddress || null,
         }, { onConflict: "tx_hash", ignoreDuplicates: true })
         .select("id")
         .maybeSingle();
@@ -240,9 +247,7 @@ export async function POST(request: Request) {
     if (err instanceof UserNotFoundError) {
       return NextResponse.json({ error: "User profile not found." }, { status: 404 });
     }
-
-    const msg = err instanceof Error ? err.message : "Internal verification error.";
-    console.error("[verify-crypto] Error:", msg);
-    return NextResponse.json({ error: msg }, { status: 500 });
+    console.error("[verify-crypto] Error:", err instanceof Error ? err.message : err);
+    return NextResponse.json({ error: "Internal verification error." }, { status: 500 });
   }
 }

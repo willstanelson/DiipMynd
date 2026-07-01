@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabase/server";
+import { checkRateLimit } from "@/lib/rateLimit";
+import { apiError } from "@/lib/api";
 
 export async function POST() {
   try {
@@ -9,22 +11,34 @@ export async function POST() {
       return NextResponse.json({ error: "Authentication required." }, { status: 401 });
     }
 
+    // Modest rate limit: 1 keepalive / 5s per user (cheap DB writes, but unbounded).
+    const limited = await checkRateLimit(`keepalive_${currentUser.id}`, 1, 5 * 1000, {
+      failOpen: true, // best-effort — don't kill a live stream on a DB blip
+    });
+    if (limited) {
+      return NextResponse.json(
+        { error: "Keep-alive rate limit exceeded." },
+        { status: 429 }
+      );
+    }
+
+    // .maybeSingle() is safe if zero or one row matches; .single() would 500
+    // if the user somehow has >1 active session. Fixes L7.
     const { data, error } = await supabaseAdmin
       .from("stream_sessions")
       .update({ last_keepalive_at: new Date().toISOString() })
       .eq("user_id", currentUser.id)
       .eq("status", "active")
       .select("id")
-      .single();
+      .maybeSingle();
 
     if (error || !data) {
-      // The session is no longer active (e.g. ended by the billing worker due to timeout or 0 credits)
+      // The session is no longer active (ended by billing worker on timeout / 0 credits).
       return NextResponse.json({ error: "Session is gone or ended." }, { status: 410 });
     }
 
     return NextResponse.json({ success: true, message: "Keep-alive registered." });
-  } catch (err: any) {
-    console.error("[api/stream/keepalive] Exception:", err.message);
-    return NextResponse.json({ error: err.message }, { status: 500 });
+  } catch (err) {
+    return apiError(err, "Failed to register keep-alive.", 500);
   }
 }
