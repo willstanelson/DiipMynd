@@ -144,22 +144,6 @@ export default function VoiceLab({ user, onBalanceUpdated }: VoiceLabProps) {
     setResultAudio(null);
 
     try {
-      const deductRes = await fetch("/api/credits/deduct", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          modelEndpoint: model,
-          description: `Voice Lab TTS synthesis (${model.split("/").pop()})`,
-        }),
-      });
-
-      const deductData = await deductRes.json();
-      if (!deductRes.ok) {
-        throw new Error(deductData.error || "Credit deduction failed.");
-      }
-
-      onBalanceUpdated();
-
       let refAudioUrl = "";
       if (model !== "fal-ai/kokoro" && clonedAudioFile) {
         const formData = new FormData();
@@ -190,6 +174,7 @@ export default function VoiceLab({ user, onBalanceUpdated }: VoiceLabProps) {
       }
 
       const result: any = await fal.run(model, { input: payload });
+      onBalanceUpdated();
 
       const generatedUrl = result?.audio?.url || result?.url;
       if (!generatedUrl) {

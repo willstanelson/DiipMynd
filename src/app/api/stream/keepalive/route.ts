@@ -37,6 +37,26 @@ export async function POST() {
       return NextResponse.json({ error: "Session is gone or ended." }, { status: 410 });
     }
 
+    // Check associated reservation hold (if not admin)
+    if (!currentUser.isAdmin) {
+      const { data: reservation } = await supabaseAdmin
+        .from("credit_reservations")
+        .select("status")
+        .eq("reference_type", "stream")
+        .eq("reference_id", data.id)
+        .maybeSingle();
+
+      if (reservation && reservation.status !== "reserved") {
+        // Force-end the session row since hold has been released or expired
+        await supabaseAdmin
+          .from("stream_sessions")
+          .update({ status: "ended" })
+          .eq("id", data.id);
+        
+        return NextResponse.json({ error: "Session credit hold expired or released." }, { status: 410 });
+      }
+    }
+
     return NextResponse.json({ success: true, message: "Keep-alive registered." });
   } catch (err) {
     return apiError(err, "Failed to register keep-alive.", 500);

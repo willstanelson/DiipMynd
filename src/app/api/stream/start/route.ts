@@ -1,0 +1,143 @@
+// ============================================================================
+// DiipMynd — Stream API: Start Stream Session
+// POST /api/stream/start
+//
+// Initializes a stream session on the server. Checks credits, creates a
+// credit reservation hold, inserts the session row in the database, and
+// mints Decart connection tokens if needed.
+// ============================================================================
+
+import { NextResponse } from "next/server";
+import { getCurrentUser } from "@/lib/auth";
+import { supabaseAdmin } from "@/lib/supabase/server";
+import { reserveCreditsEscrow } from "@/lib/credits";
+import { createDecartClient } from "@decartai/sdk";
+import { apiError } from "@/lib/api";
+import crypto from "crypto";
+
+const HARD_MAX_SESSION_SECONDS = 7200; // 2 hours hard cap
+
+export async function POST(request: Request) {
+  try {
+    const currentUser = await getCurrentUser();
+    if (!currentUser) {
+      return NextResponse.json({ error: "Authentication required." }, { status: 401 });
+    }
+
+    const body = await request.json().catch(() => ({}));
+    const { provider } = body;
+
+    if (provider !== "decart" && provider !== "fal") {
+      return NextResponse.json({ error: "Invalid provider. Must be 'decart' or 'fal'." }, { status: 400 });
+    }
+
+    const userCredits = currentUser.credits;
+
+    // Minimum balance check: at least 30 credits (equivalent to 30s stream time)
+    if (!currentUser.isAdmin && userCredits < 30) {
+      return NextResponse.json({ 
+        error: "Insufficient credits. Minimum 30 credits required to start streaming." 
+      }, { status: 402 });
+    }
+
+    const sessionId = crypto.randomUUID();
+    const estimatedCost = currentUser.isAdmin 
+      ? 0 
+      : Math.min(userCredits, HARD_MAX_SESSION_SECONDS);
+
+    // 1. Reserve credits in escrow (if not admin)
+    let reservationId: string | null = null;
+    if (!currentUser.isAdmin) {
+      const reservation = await reserveCreditsEscrow(
+        currentUser.id,
+        estimatedCost,
+        "stream",
+        sessionId,
+        estimatedCost // TTL is equal to estimatedCost in seconds (1 credit = 1 second)
+      );
+
+      if (!reservation.ok) {
+        return NextResponse.json({
+          error: "Failed to reserve credits for streaming.",
+          required: estimatedCost,
+          available: reservation.available ?? 0
+        }, { status: 402 });
+      }
+      reservationId = reservation.reservationId || null;
+    }
+
+    // 2. Insert stream session row server-side
+    const { data: session, error: insertError } = await supabaseAdmin
+      .from("stream_sessions")
+      .insert({
+        id: sessionId,
+        user_id: currentUser.id,
+        provider,
+        status: "active",
+        started_at: new Date().toISOString(),
+        last_billed_at: new Date().toISOString(),
+        last_keepalive_at: new Date().toISOString(),
+      })
+      .select()
+      .single();
+
+    if (insertError) {
+      if (
+        insertError.message.includes("permission denied") ||
+        insertError.message.includes("does not exist") ||
+        insertError.message.includes("relation")
+      ) {
+        if (process.env.NODE_ENV === "production" && process.env.NEXT_PUBLIC_ALLOW_MOCK_ESCROW !== "true") {
+          throw new Error("CRITICAL: stream_sessions table not found or write denied. Simulated escrow fallback is disabled in non-development environments.");
+        }
+        console.warn("[stream-start] stream_sessions table insert denied or missing. Using simulated local session.");
+        const { addMockStreamSession } = require("@/lib/credits");
+        addMockStreamSession(currentUser.id);
+      } else {
+        console.error("[stream-start] Database insert error:", insertError.message);
+        // Refund if insertion fails
+        if (reservationId) {
+          const { settleReservationEscrow } = await import("@/lib/credits");
+          await settleReservationEscrow(reservationId, estimatedCost, "failure");
+        }
+        return NextResponse.json({ error: "Failed to initialize stream session." }, { status: 500 });
+      }
+    }
+
+    // 3. For Decart provider, mint short-lived client token
+    let decartToken: string | null = null;
+    let expiresAt: number | null = null;
+
+    if (provider === "decart") {
+      const apiKey = process.env.DECART_API_KEY;
+      if (!apiKey) {
+        console.error("[stream-start] DECART_API_KEY is not configured.");
+        return NextResponse.json({ error: "Decart integration is misconfigured." }, { status: 500 });
+      }
+
+      const client = createDecartClient({ apiKey });
+      const token = await client.tokens.create({
+        expiresIn: 300, // 5 min TTL
+        allowedModels: ["lucy-2.1"],
+      });
+
+      const returnedKey = token?.apiKey;
+      if (!returnedKey || returnedKey === apiKey) {
+        throw new Error("Decart token generation returned an invalid key shape.");
+      }
+
+      decartToken = returnedKey;
+      expiresAt = Date.now() + 300 * 1000;
+    }
+
+    return NextResponse.json({
+      success: true,
+      sessionId,
+      decartToken,
+      expiresAt,
+      reservationId,
+    });
+  } catch (err) {
+    return apiError(err, "Failed to start stream session.", 500);
+  }
+}

@@ -99,6 +99,18 @@ export async function POST(request: Request) {
         );
       }
 
+      // Timestamp check: reject if older than 30 minutes
+      const txTimestamp = txData.timestamp || txData.date;
+      if (txTimestamp) {
+        const elapsedMinutes = (Date.now() - Number(txTimestamp)) / (60 * 1000);
+        if (elapsedMinutes > 30) {
+          return NextResponse.json(
+            { error: "Transaction is older than 30 minutes. Payments must be claimed immediately." },
+            { status: 400 }
+          );
+        }
+      }
+
       // Check token transfer details
       const transferInfoList = Array.isArray(txData.trc20TransferInfo)
         ? txData.trc20TransferInfo
@@ -168,6 +180,55 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "Transaction has failed status on-chain." }, { status: 400 });
       }
 
+      // Confirmation Check: Require at least 3 block confirmations
+      const blockNumberRes = await fetch(rpcUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          method: "eth_blockNumber",
+          params: [],
+          id: 3,
+        }),
+      });
+      if (blockNumberRes.ok) {
+        const bnData = await blockNumberRes.json();
+        const latestBlock = parseInt(bnData.result, 16);
+        const receiptBlock = parseInt(receipt.blockNumber, 16);
+        if (latestBlock - receiptBlock < 3) {
+          return NextResponse.json(
+            { error: "Transaction block has fewer than 3 confirmations. Please wait a few seconds and try again." },
+            { status: 400 }
+          );
+        }
+      }
+
+      // Timestamp Check: Require transaction block to be newer than 30 minutes
+      const blockRes = await fetch(rpcUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          method: "eth_getBlockByNumber",
+          params: [receipt.blockNumber, false],
+          id: 4,
+        }),
+      });
+      if (blockRes.ok) {
+        const bData = await blockRes.json();
+        const blockTimestampHex = bData.result?.timestamp;
+        if (blockTimestampHex) {
+          const blockTimestampMs = parseInt(blockTimestampHex, 16) * 1000;
+          const elapsedMinutes = (Date.now() - blockTimestampMs) / (60 * 1000);
+          if (elapsedMinutes > 30) {
+            return NextResponse.json(
+              { error: "Transaction block timestamp is older than 30 minutes. Payments must be claimed immediately." },
+              { status: 400 }
+            );
+          }
+        }
+      }
+
       // Parse transfer log
       const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
       const targetPaddedWallet = `0x000000000000000000000000${walletConfig.address.substring(2).toLowerCase()}`;
@@ -213,6 +274,23 @@ export async function POST(request: Request) {
 
     // ── Atomically log and credit ─────────────────────────────────────────
     if (isVerified) {
+      // ── Interim Wallet-Binding check ─────────────────────────────────────
+      if (senderAddress) {
+        const { data: siblingClaims } = await supabaseAdmin
+          .from("credit_requests")
+          .select("user_id")
+          .eq("sender_address", senderAddress)
+          .neq("user_id", currentUser.id)
+          .limit(1);
+
+        if (siblingClaims && siblingClaims.length > 0) {
+          return NextResponse.json(
+            { error: "This on-chain wallet address is already claimed by another profile." },
+            { status: 400 }
+          );
+        }
+      }
+
       // Insert transaction log into credit_requests FIRST to lock the hash
       // If it fails or returns no data, someone else already inserted it (race condition prevented)
       const { data: insertedData, error: logInsertError } = await supabaseAdmin

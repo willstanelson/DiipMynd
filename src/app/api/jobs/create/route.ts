@@ -17,8 +17,9 @@ import { getCurrentUser } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { VIDEO_MODELS, IMAGE_MODELS, AUDIO_MODELS } from "@/lib/packages";
 import { checkRateLimit } from "@/lib/rateLimit";
-import { adjustCredits, reserveCredits } from "@/lib/credits";
+import { reserveCreditsEscrow, settleReservationEscrow } from "@/lib/credits";
 import { apiError, getClientIp } from "@/lib/api";
+import crypto from "crypto";
 
 export async function POST(request: Request) {
   try {
@@ -61,15 +62,19 @@ export async function POST(request: Request) {
     }
     requiredCredits = model.creditCost;
 
+    const jobId = crypto.randomUUID();
+
     // Atomically reserve credits BEFORE queueing. This closes the TOCTOU window:
     // concurrent requests can't all pass a read-only check and then overdraw.
     // (Admins are exempt.)
+    let reservationId: string | null = null;
     if (!currentUser.isAdmin) {
-      const reservation = await reserveCredits(
+      const reservation = await reserveCreditsEscrow(
         currentUser.id,
         requiredCredits,
-        `Generation job reserved (${model.endpoint})`,
-        "jobs-create"
+        "job",
+        jobId,
+        1800 // 30 minutes TTL
       );
       if (!reservation.ok) {
         return NextResponse.json(
@@ -81,12 +86,14 @@ export async function POST(request: Request) {
           { status: 402 }
         );
       }
+      reservationId = reservation.reservationId || null;
     }
 
-    // Insert job into generation_jobs
+    // Insert job into generation_jobs with explicit jobId
     const { data: job, error } = await supabaseAdmin
       .from("generation_jobs")
       .insert({
+        id: jobId,
         user_id: currentUser.id,
         type,
         payload,
@@ -96,15 +103,10 @@ export async function POST(request: Request) {
       .single();
 
     if (error) {
-      // Queueing failed → refund the reservation we just made.
-      if (!currentUser.isAdmin) {
+      // Queueing failed → refund the reservation we just made immediately.
+      if (reservationId) {
         try {
-          await adjustCredits(
-            currentUser.id,
-            requiredCredits, // positive delta = credit back
-            `Refund: job queue insert failed (${model.endpoint})`,
-            "jobs-create-refund"
-          );
+          await settleReservationEscrow(reservationId, requiredCredits, "failure");
         } catch (refundErr) {
           console.error(`[api/jobs/create] REFUND FAILED for ${currentUser.id}:`, refundErr);
         }

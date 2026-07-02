@@ -155,22 +155,6 @@ export default function StoryboardStudio({
     const cost = modelConfig ? modelConfig.creditCost : (type === "image" ? 5 : 30);
 
     try {
-      const deductRes = await fetch("/api/credits/deduct", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          modelEndpoint: model,
-          description: `Storyboard Scene ${scene.number} ${type} generation (${model.split("/").pop()})`,
-        }),
-      });
-
-      const deductData = await deductRes.json();
-      if (!deductRes.ok) {
-        throw new Error(deductData.error || "Credit deduction failed.");
-      }
-
-      onBalanceUpdated();
-
       console.log(`[storyboard-media] Generating ${type} for scene ${scene.number} via ${model}...`);
       let generatedUrl = "";
 
@@ -215,6 +199,8 @@ export default function StoryboardStudio({
       if (!generatedUrl) {
         throw new Error("Generation API succeeded but returned no media URL.");
       }
+
+      onBalanceUpdated();
 
       console.log("[storyboard-media] Localizing media to cloud/Telegram storage...");
       const downloadRes = await fetch("/api/library/download", {

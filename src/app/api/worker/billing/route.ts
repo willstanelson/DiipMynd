@@ -4,25 +4,20 @@
 //
 // Auth: requires a valid CRON_SECRET header.
 //
-// Hardening vs. original (audit findings C2 / M1):
-//   * CRON_SECRET auth gate.
-//   * `maxDuration` declared (matches the other workers).
-//   * Per-tick deduction is CAPPED — a slow tick can no longer dock a user
-//     hundreds of credits in one shot.
-//   * Uses the real RPC (`adjust_credits`) — the original referenced
-//     `adjust_user_credits_atomic`, which does not exist.
-//   * Sessions are processed in a bounded batch; staleness and zero-balance are
-//     terminal (status = 'ended') and recorded.
+// Refactored to support the credit reservation escrow pattern:
+//   * Active stream sessions are checked against their credit_reservations.
+//   * Stale sessions (no keepalive > 90s) are ended and settled for their actual elapsed time.
+//   * Sessions exceeding their hard reservation expiration time are terminated.
+//   * Admins are exempt from billing holds but sessions are still marked stale.
 // ============================================================================
 
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { apiError, requireCronAuth } from "@/lib/api";
+import { settleReservationEscrow } from "@/lib/credits";
 
 export const maxDuration = 300;
 
-const BILL_INTERVAL_SECONDS = 30; // only bill at least this much elapsed
-const MAX_DEDUCT_PER_TICK = 60; // hard ceiling per tick — prevents runaway drains
 const STALE_AFTER_SECONDS = 90; // end sessions with no recent keepalive
 
 export async function POST() {
@@ -52,53 +47,79 @@ export async function POST() {
     let ended = 0;
 
     for (const session of sessions) {
-      const lastBilled = new Date(session.last_billed_at);
+      const startedAt = new Date(session.started_at);
       const lastKeepalive = new Date(session.last_keepalive_at);
 
-      const secondsSinceBilled = (now.getTime() - lastBilled.getTime()) / 1000;
       const secondsSinceKeepalive = (now.getTime() - lastKeepalive.getTime()) / 1000;
 
-      // Staleness timeout — terminal.
+      // ── Admin Exemption ──────────────────────────────────────────────────
+      // Fetch user profile to check admin status
+      const { data: profile } = await supabaseAdmin
+        .from("profiles")
+        .select("is_admin")
+        .eq("id", session.user_id)
+        .maybeSingle();
+
+      const isAdmin = !!profile?.is_admin;
+
+      // Fetch active reservation hold (if not admin)
+      let reservation: any = null;
+      if (!isAdmin) {
+        const { data: resData } = await supabaseAdmin
+          .from("credit_reservations")
+          .select("id, amount_reserved, expires_at, status")
+          .eq("reference_type", "stream")
+          .eq("reference_id", session.id)
+          .maybeSingle();
+        
+        reservation = resData;
+      }
+
+      // ── Staleness timeout — terminal ─────────────────────────────────────
       if (secondsSinceKeepalive > STALE_AFTER_SECONDS) {
         await supabaseAdmin.from("stream_sessions").update({ status: "ended" }).eq("id", session.id);
+        
+        if (reservation && reservation.status === "reserved") {
+          const elapsedSeconds = Math.max(0, Math.floor((lastKeepalive.getTime() - startedAt.getTime()) / 1000));
+          const actualCost = Math.min(reservation.amount_reserved, elapsedSeconds);
+          await settleReservationEscrow(reservation.id, actualCost, "success");
+        }
         ended++;
         continue;
       }
 
-      // Only bill when a full interval has elapsed.
-      if (secondsSinceBilled >= BILL_INTERVAL_SECONDS) {
-        // 1 credit/sec, CAPPED so a slow tick can't drain a balance.
-        const costToDeduct = Math.min(MAX_DEDUCT_PER_TICK, Math.floor(secondsSinceBilled));
-
-        const { data: updatedProfile, error: deductError } = await supabaseAdmin.rpc("adjust_credits", {
-          p_user_id: session.user_id,
-          p_delta: -costToDeduct,
-          p_reason: "Stream billing tick",
-          p_source: "worker-billing",
-        });
-
-        if (deductError) {
-          console.error(`[worker/billing] Deduction failed for ${session.user_id}:`, deductError);
+      // ── Check if reservation hold has expired or been settled ──────────────
+      if (!isAdmin) {
+        if (!reservation) {
+          // Orphan session with no hold -> terminate
           await supabaseAdmin.from("stream_sessions").update({ status: "ended" }).eq("id", session.id);
           ended++;
           continue;
         }
 
-        const remainingCredits = Array.isArray(updatedProfile)
-          ? updatedProfile?.[0]?.new_balance ?? 0
-          : updatedProfile ?? 0;
-
-        if (remainingCredits <= 0) {
+        if (reservation.status !== "reserved") {
+          // Hold was already settled or expired -> terminate session
           await supabaseAdmin.from("stream_sessions").update({ status: "ended" }).eq("id", session.id);
           ended++;
-        } else {
-          await supabaseAdmin
-            .from("stream_sessions")
-            .update({ last_billed_at: now.toISOString() })
-            .eq("id", session.id);
-          processed++;
+          continue;
+        }
+
+        const expiresAt = new Date(reservation.expires_at);
+        if (now.getTime() >= expiresAt.getTime()) {
+          // Hold expired -> terminate and commit full reservation
+          await supabaseAdmin.from("stream_sessions").update({ status: "ended" }).eq("id", session.id);
+          await settleReservationEscrow(reservation.id, reservation.amount_reserved, "success");
+          ended++;
+          continue;
         }
       }
+
+      // ── Session is active and healthy ────────────────────────────────────
+      await supabaseAdmin
+        .from("stream_sessions")
+        .update({ last_billed_at: now.toISOString() })
+        .eq("id", session.id);
+      processed++;
     }
 
     return NextResponse.json({ success: true, processed, ended });

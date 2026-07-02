@@ -1,0 +1,16 @@
+{
+  "crons": [
+    {
+      "path": "/api/worker/reconcile-reservations",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/worker/billing",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/worker/process-queue",
+      "schedule": "* * * * *"
+    }
+  ]
+}

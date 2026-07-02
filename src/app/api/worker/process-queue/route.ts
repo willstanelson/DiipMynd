@@ -16,7 +16,7 @@
 
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/server";
-import { adjustCredits } from "@/lib/credits";
+import { settleReservationEscrow } from "@/lib/credits";
 import { apiError, requireCronAuth } from "@/lib/api";
 import { fal } from "@fal-ai/client";
 import { IMAGE_MODELS, VIDEO_MODELS, AUDIO_MODELS } from "@/lib/packages";
@@ -60,28 +60,37 @@ export async function POST(request: Request) {
           throw new Error("Unknown model in payload.");
         }
 
-        // ── Reserve credits BEFORE the paid call ──────────────────────────
-        // adjustCredits throws InsufficientCreditsError if the user can't pay;
-        // we treat that as a terminal failure rather than a retryable one.
-        try {
-          await adjustCredits(
-            user_id,
-            -modelDef.creditCost,
-            `Generation Job (reserved): ${modelDef.endpoint}`,
-            "queue-worker"
-          );
-        } catch (err: any) {
-          const insufficient = err?.message?.includes("Insufficient credits");
-          if (insufficient) {
-            await markFailed(job, "Insufficient credits at run time.", MAX_RETRIES);
-            throw err;
+        // Fetch user profile to check admin status
+        const { data: profile } = await supabaseAdmin
+          .from("profiles")
+          .select("is_admin")
+          .eq("id", user_id)
+          .maybeSingle();
+
+        const isAdmin = !!profile?.is_admin;
+        let reservation: any = null;
+
+        // Verify credit reservation hold exists and is active (if not admin)
+        if (!isAdmin) {
+          const { data: resData, error: resError } = await supabaseAdmin
+            .from("credit_reservations")
+            .select("id, status")
+            .eq("reference_type", "job")
+            .eq("reference_id", job.id)
+            .maybeSingle();
+
+          if (resError || !resData) {
+            await markFailed(job, "Missing credit reservation hold for job.", MAX_RETRIES);
+            throw new Error("Missing credit reservation hold.");
           }
-          // Other errors: terminal-fail to avoid a refund/charge loop.
-          await markFailed(job, `Credit reservation failed: ${err.message}`, MAX_RETRIES);
-          throw err;
+
+          if (resData.status !== "reserved") {
+            await markFailed(job, "Reservation is already settled or expired.", MAX_RETRIES);
+            throw new Error("Reservation already settled.");
+          }
+          reservation = resData;
         }
 
-        let charged = true;
         try {
           let generatedUrl = "";
 
@@ -123,23 +132,18 @@ export async function POST(request: Request) {
             .update({ status: "completed", result_url: persistentUrl })
             .eq("id", job.id);
 
-          charged = false; // success — reservation is consumed, no refund
+          // Settle reservation hold successfully
+          if (reservation) {
+            await settleReservationEscrow(reservation.id, modelDef.creditCost, "success");
+          }
           return { id: job.id, status: "completed" };
         } catch (genErr: any) {
-          // Generation failed AFTER we charged. Refund the reserved credits so
-          // the user is not billed for a failed/never-persisted job.
-          if (charged) {
+          // Settle reservation hold to failure (fully refunding user)
+          if (reservation) {
             try {
-              await adjustCredits(
-                user_id,
-                modelDef.creditCost,
-                `Refund: failed generation (${modelDef.endpoint})`,
-                "queue-worker-refund"
-              );
+              await settleReservationEscrow(reservation.id, modelDef.creditCost, "failure");
             } catch (refundErr) {
-              // Log but don't mask the original error — refund failures must be
-              // investigated, but the user's job still needs to fail out.
-              console.error(`[process-queue] REFUND FAILED for job ${job.id}:`, refundErr);
+              console.error(`[process-queue] Settle hold to failure FAILED for job ${job.id}:`, refundErr);
             }
           }
           await markFailed(job, genErr.message || "Generation failed.", MAX_RETRIES);

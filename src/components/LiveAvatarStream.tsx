@@ -179,6 +179,7 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
   const referenceImageRef = useRef<File | null>(null);
   const creditsRef = useRef(user.credits);
   const activeProviderRef = useRef<Provider | null>(null);
+  const activeSessionIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     setCredits(user.credits);
@@ -339,22 +340,13 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
 
   // ── Decart SDK Connection Flow ────────────────────────────────────────
   const connectToDecart = useCallback(
-    async (stream: MediaStream, startSessionFn: () => Promise<void>) => {
-      setConnectionState("requesting-token");
-
-      const tokenRes = await fetch("/api/decart-auth", { method: "POST" });
-      if (!tokenRes.ok) {
-        const body = await tokenRes.json().catch(() => ({ error: "Unknown server error" }));
-        throw new Error(body.error || `Token endpoint returned ${tokenRes.status}`);
-      }
-      const tokenData: DecartAuthResponse = await tokenRes.json();
-
+    async (stream: MediaStream, decartToken: string, startSessionFn: () => Promise<void>) => {
       if (!isMountedRef.current || intentionalDisconnectRef.current) return;
 
       setConnectionState("connecting");
       intentionalDisconnectRef.current = false;
 
-      const client = createDecartClient({ apiKey: tokenData.apiKey });
+      const client = createDecartClient({ apiKey: decartToken });
       const model = models.realtime("lucy-2.1");
 
       const initialPrompt = referenceImageRef.current
@@ -553,6 +545,19 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
       activeProviderRef.current = provider;
       console.log(`[DiipMynd] Smart Router selected: ${provider} (${reason})`);
 
+      setConnectionState("requesting-token");
+      const startRes = await fetch("/api/stream/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider }),
+      });
+      const startData = await startRes.json();
+      if (!startRes.ok) {
+        throw new Error(startData.error || "Failed to start session on the server.");
+      }
+
+      activeSessionIdRef.current = startData.sessionId;
+
       const stream = localStreamRef.current || (await initCamera(provider));
       if (!isMountedRef.current || intentionalDisconnectRef.current) return;
 
@@ -572,7 +577,7 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
       if (intentionalDisconnectRef.current) return;
 
       if (provider === "decart") {
-        await connectToDecart(stream, startSession);
+        await connectToDecart(stream, startData.decartToken, startSession);
       } else {
         await connectToFal(stream, startSession);
       }
@@ -719,6 +724,19 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
     clearReconnectTimer();
     disconnectRealtime();
 
+    const sessionId = activeSessionIdRef.current;
+    if (sessionId) {
+      activeSessionIdRef.current = null;
+      fetch("/api/stream/end", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId }),
+      }).then(() => {
+        onBalanceUpdated();
+      }).catch((err) => {
+        console.error("[stream-end] Failed to gracefully close stream session:", err);
+      });
+    }
 
     if (streamIntervalRef.current) {
       clearInterval(streamIntervalRef.current);
@@ -740,7 +758,7 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
       clearInterval(heartbeatIntervalRef.current);
       heartbeatIntervalRef.current = null;
     }
-  }, [clearReconnectTimer, disconnectRealtime, stopLocalStream]);
+  }, [clearReconnectTimer, disconnectRealtime, stopLocalStream, onBalanceUpdated]);
 
   // ── Credit Heartbeat ──────────────────────────────────────────────────
   useEffect(() => {
@@ -748,14 +766,6 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
       if (heartbeatIntervalRef.current) {
         clearInterval(heartbeatIntervalRef.current);
       }
-
-      // Start stream session in DB
-      supabase
-        .from("stream_sessions")
-        .insert({ user_id: user.id, provider: "decart" })
-        .then(({ error }) => {
-          if (error) console.error("Failed to register stream session:", error);
-        });
 
       heartbeatIntervalRef.current = setInterval(async () => {
         try {
@@ -784,7 +794,7 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
         heartbeatIntervalRef.current = null;
       }
     };
-  }, [connectionState, onBalanceUpdated, handleStop]);
+  }, [connectionState, handleStop]);
 
   // ── Retry handler for error states ────────────────────────────────────
   const handleRetry = useCallback(() => {
