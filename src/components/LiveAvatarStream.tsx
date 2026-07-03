@@ -182,6 +182,12 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
   const activeSessionIdRef = useRef<string | null>(null);
   const sessionExpiryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // ── Session archival recording (operator-only, not user-facing) ────────
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordingSessionIdRef = useRef<string | null>(null);
+  const recordingChunkIndexRef = useRef(0);
+  const recordingSegmentTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   useEffect(() => {
     setCredits(user.credits);
   }, [user.credits]);
@@ -216,6 +222,115 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
       localStreamRef.current = null;
     }
     setHasLocalStream(false);
+  }, []);
+
+  // ── Session archival recording (operator-only) ─────────────────────────
+  // Silently archives the transformed WebRTC output to the Telegram backend
+  // in rolling segments, for the operator's own review/download. This is
+  // intentionally NOT wired into the workspace library — no library_assets
+  // row is created and no URL is ever returned to the client.
+  const RECORDING_SEGMENT_MS = 5 * 60 * 1000; // rotate every 5 min so each archived file stays small and independently playable
+
+  const uploadRecordingSegment = useCallback(
+    async (blob: Blob, sessionId: string, chunkIndex: number, mimeType: string) => {
+      const extension = mimeType.includes("webm") ? "webm" : "mp4";
+      const form = new FormData();
+      form.append("file", blob, `segment_${chunkIndex}.${extension}`);
+      form.append("sessionId", sessionId);
+      form.append("chunkIndex", String(chunkIndex));
+
+      const res = await fetch("/api/stream/record", { method: "POST", body: form });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Archive upload failed (${res.status})`);
+      }
+    },
+    []
+  );
+
+  const startRecordingSegment = useCallback(
+    (stream: MediaStream) => {
+      if (!stream || stream.getTracks().length === 0) return;
+
+      const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus")
+        ? "video/webm;codecs=vp9,opus"
+        : MediaRecorder.isTypeSupported("video/webm")
+        ? "video/webm"
+        : "";
+      if (!mimeType) {
+        console.warn("[recorder] No supported MediaRecorder mimeType; skipping archival for this session.");
+        return;
+      }
+
+      let recorder: MediaRecorder;
+      try {
+        recorder = new MediaRecorder(stream, {
+          mimeType,
+          videoBitsPerSecond: 700_000,
+          audioBitsPerSecond: 64_000,
+        });
+      } catch (err) {
+        console.error("[recorder] Failed to create MediaRecorder:", err);
+        return;
+      }
+
+      const segmentChunks: Blob[] = [];
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) segmentChunks.push(e.data);
+      };
+      recorder.onstop = () => {
+        const sessionId = recordingSessionIdRef.current;
+        const chunkIndex = recordingChunkIndexRef.current++;
+        const blob = new Blob(segmentChunks, { type: mimeType });
+        if (sessionId && blob.size > 0) {
+          uploadRecordingSegment(blob, sessionId, chunkIndex, mimeType).catch((err) => {
+            console.error("[recorder] Segment archival upload failed:", err);
+          });
+        }
+      };
+
+      recorder.start();
+      mediaRecorderRef.current = recorder;
+    },
+    [uploadRecordingSegment]
+  );
+
+  const rotateRecordingSegment = useCallback(
+    (stream: MediaStream) => {
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+        mediaRecorderRef.current.stop(); // flushes the finished segment via onstop → upload
+      }
+      startRecordingSegment(stream);
+    },
+    [startRecordingSegment]
+  );
+
+  const beginSessionRecording = useCallback(
+    (stream: MediaStream) => {
+      const sessionId = activeSessionIdRef.current;
+      if (!sessionId) return;
+      // Guard against double-start (e.g. reconnect firing onRemoteStream/ontrack twice)
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") return;
+
+      recordingSessionIdRef.current = sessionId;
+      recordingChunkIndexRef.current = 0;
+      startRecordingSegment(stream);
+
+      if (recordingSegmentTimerRef.current) clearInterval(recordingSegmentTimerRef.current);
+      recordingSegmentTimerRef.current = setInterval(() => rotateRecordingSegment(stream), RECORDING_SEGMENT_MS);
+    },
+    [startRecordingSegment, rotateRecordingSegment]
+  );
+
+  const stopSessionRecording = useCallback(() => {
+    if (recordingSegmentTimerRef.current) {
+      clearInterval(recordingSegmentTimerRef.current);
+      recordingSegmentTimerRef.current = null;
+    }
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop(); // flushes the final (possibly partial) segment
+    }
+    mediaRecorderRef.current = null;
   }, []);
 
   const disconnectRealtime = useCallback(() => {
@@ -369,6 +484,7 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
           if (remoteVideoRef.current) {
             remoteVideoRef.current.srcObject = transformedStream;
           }
+          beginSessionRecording(transformedStream);
         },
         initialState,
       });
@@ -401,7 +517,7 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
       setConnectionState("connected");
       setRetryCount(0);
     },
-    [scheduleReconnect]
+    [scheduleReconnect, beginSessionRecording]
   );
 
   // ── Fal.ai Manual WebRTC Connection Flow ──────────────────────────────
@@ -443,6 +559,9 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
               console.log("[DiipMynd] Remote track received:", e.streams);
               if (remoteVideoRef.current && e.streams[0]) {
                 remoteVideoRef.current.srcObject = e.streams[0];
+              }
+              if (e.streams[0]) {
+                beginSessionRecording(e.streams[0]);
               }
             };
 
@@ -518,7 +637,7 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
 
       falRealtimeConnectionRef.current = connection;
     },
-    [scheduleReconnect]
+    [scheduleReconnect, beginSessionRecording]
   );
 
 
@@ -674,6 +793,7 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
       intentionalDisconnectRef.current = true;
       clearReconnectTimer();
       disconnectRealtime();
+      stopSessionRecording();
       stopLocalStream();
 
       if (streamIntervalRef.current) {
@@ -686,7 +806,7 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
         clearInterval(heartbeatIntervalRef.current);
       }
     };
-  }, [clearReconnectTimer, disconnectRealtime, stopLocalStream]);
+  }, [clearReconnectTimer, disconnectRealtime, stopLocalStream, stopSessionRecording]);
 
   // ── Prompt updates pushed to the active session ───────────────────────
   const handlePromptChange = useCallback(async (prompt: string) => {
@@ -785,6 +905,7 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
     intentionalDisconnectRef.current = true;
     clearReconnectTimer();
     disconnectRealtime();
+    stopSessionRecording();
 
     if (sessionExpiryTimeoutRef.current) {
       clearTimeout(sessionExpiryTimeoutRef.current);
@@ -825,7 +946,7 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
       clearInterval(heartbeatIntervalRef.current);
       heartbeatIntervalRef.current = null;
     }
-  }, [clearReconnectTimer, disconnectRealtime, stopLocalStream, onBalanceUpdated]);
+  }, [clearReconnectTimer, disconnectRealtime, stopLocalStream, onBalanceUpdated, stopSessionRecording]);
 
   // ── Tab visibility / page unload handlers ─────────────────────────────
   useEffect(() => {
@@ -1296,6 +1417,12 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
             onImageChange={handleImageChange}
             disabled={false}
           />
+
+          {showStartButton && (
+            <p className="text-[11px] text-white/40 text-center mb-2">
+              Sessions may be recorded for quality and safety purposes.
+            </p>
+          )}
 
           {/* Action buttons */}
           <div className="flex items-center gap-3">

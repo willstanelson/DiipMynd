@@ -40,7 +40,8 @@ async function downloadFile(url: string): Promise<{ buffer: Buffer; mimeType: st
 export async function uploadBufferToTelegram(
   buffer: Buffer,
   fileName: string,
-  mimeType: string
+  mimeType: string,
+  caption?: string
 ): Promise<{ fileId: string; chatId: number; messageId: number }> {
   if (!isTelegramStorageEnabled()) {
     throw new Error("Telegram cloud storage is not configured in environment variables.");
@@ -59,6 +60,14 @@ export async function uploadBufferToTelegram(
   chunks.push(Buffer.from(`--${boundary}\r\n`));
   chunks.push(Buffer.from(`Content-Disposition: form-data; name="chat_id"\r\n\r\n`));
   chunks.push(Buffer.from(`${TELEGRAM_CHAT_ID}\r\n`));
+
+  // Append caption (optional) — Telegram caps captions at 1024 chars
+  if (caption) {
+    const safeCaption = caption.slice(0, 1024);
+    chunks.push(Buffer.from(`--${boundary}\r\n`));
+    chunks.push(Buffer.from(`Content-Disposition: form-data; name="caption"\r\n\r\n`));
+    chunks.push(Buffer.from(`${safeCaption}\r\n`));
+  }
 
   // Append document (the file)
   const safeFileName = fileName.replace(/["\r\n\\]/g, "_");
