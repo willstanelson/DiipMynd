@@ -866,11 +866,11 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
       }
     };
 
-    window.addEventListener("visibilitychange", handleVisibilityChange);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
     window.addEventListener("pagehide", handlePageHide);
 
     return () => {
-      window.removeEventListener("visibilitychange", handleVisibilityChange);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("pagehide", handlePageHide);
       if (visibilityTimeout) {
         clearTimeout(visibilityTimeout);
