@@ -158,10 +158,13 @@ export async function POST(request: Request) {
       }
     }
 
-    // 3. Setup Decart / Fal TTL & expiresAt details
+    // 3. Setup Decart / Fal TTL & expiration details
     let decartToken: string | null = null;
-    const decartTtl = currentUser.isAdmin ? 300 : Math.min(300, estimatedCost);
-    const expiresAt = Date.now() + decartTtl * 1000;
+    const tokenTtl = currentUser.isAdmin ? 300 : Math.min(300, estimatedCost);
+    const tokenExpiresAt = Date.now() + tokenTtl * 1000;
+    const reservationExpiresAt = currentUser.isAdmin 
+      ? Date.now() + 86400 * 1000
+      : Date.now() + estimatedCost * 1000;
 
     if (provider === "decart") {
       const apiKey = process.env.DECART_API_KEY;
@@ -172,7 +175,7 @@ export async function POST(request: Request) {
 
       const client = createDecartClient({ apiKey });
       const token = await client.tokens.create({
-        expiresIn: decartTtl,
+        expiresIn: tokenTtl,
         allowedModels: ["lucy-2.1"],
       });
 
@@ -188,7 +191,8 @@ export async function POST(request: Request) {
       success: true,
       sessionId,
       decartToken,
-      expiresAt,
+      tokenExpiresAt,
+      reservationExpiresAt,
       reservationId,
     });
   } catch (err) {

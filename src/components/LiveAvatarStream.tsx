@@ -603,9 +603,9 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
 
       activeSessionIdRef.current = startData.sessionId;
 
-      // Proactively schedule session expiry timer based on startData.expiresAt
-      if (startData.expiresAt && !user.isAdmin) {
-        const timeToExpiry = startData.expiresAt - Date.now();
+      // Proactively schedule session expiry timer based on startData.reservationExpiresAt
+      if (startData.reservationExpiresAt && !user.isAdmin) {
+        const timeToExpiry = startData.reservationExpiresAt - Date.now();
         console.log(`[DiipMynd] Proactively scheduling session end in ${timeToExpiry}ms based on credit reservation`);
         if (sessionExpiryTimeoutRef.current) {
           clearTimeout(sessionExpiryTimeoutRef.current);
