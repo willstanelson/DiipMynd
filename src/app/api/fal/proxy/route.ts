@@ -40,6 +40,7 @@ const { GET: falGET, POST: falPOST, PUT: falPUT } = createRouteHandler({
     "fal-ai/f5-tts",
     "fal-ai/xtts-v2",
     "fal-ai/elevenlabs/tts",
+    "fal-ai/elevenlabs/tts/eleven-v3",
     "fal-ai/heygen/avatar-v/digital-twin",
     "fal-ai/sync-lipsync/v2/pro",
     "fal-ai/whisper",
@@ -181,7 +182,23 @@ export async function POST(request: NextRequest) {
       return await falPOST(request);
     }
 
-    const cost = getModelCreditCost(endpoint);
+    let cost = getModelCreditCost(endpoint);
+
+    // Dynamic metered pricing override for ElevenLabs TTS (matches both the
+    // generic and the explicit eleven-v3 endpoint).
+    if (endpoint === "fal-ai/elevenlabs/tts" || endpoint === "fal-ai/elevenlabs/tts/eleven-v3") {
+      try {
+        const body = await request.clone().json();
+        const promptText = body.input?.text || body.text || body.input || "";
+        const charCount = promptText.length;
+        // 14 credits per 1,000 characters, minimum of 5 credits to cover API base cost
+        cost = Math.max(5, Math.ceil((charCount / 1000) * 14));
+        console.log(`[fal-proxy] ElevenLabs TTS: ${charCount} chars. Charging ${cost} credits.`);
+      } catch (err) {
+        console.error("[fal-proxy] Error parsing ElevenLabs prompt length:", err);
+      }
+    }
+
     const requestId = crypto.randomUUID();
 
     // Escrow Reservation

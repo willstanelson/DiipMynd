@@ -180,6 +180,7 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
   const creditsRef = useRef(user.credits);
   const activeProviderRef = useRef<Provider | null>(null);
   const activeSessionIdRef = useRef<string | null>(null);
+  const sessionExpiryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     setCredits(user.credits);
@@ -546,17 +547,78 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
       console.log(`[DiipMynd] Smart Router selected: ${provider} (${reason})`);
 
       setConnectionState("requesting-token");
-      const startRes = await fetch("/api/stream/start", {
+
+      // End previous active session if we are reconnecting
+      const oldSessionId = activeSessionIdRef.current;
+      if (oldSessionId) {
+        console.log(`[DiipMynd] Ending previous active session ${oldSessionId} before starting a new one`);
+        activeSessionIdRef.current = null;
+        try {
+          await fetch("/api/stream/end", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ sessionId: oldSessionId }),
+          });
+          // Wait briefly for the DB transaction/release to commit
+          await new Promise((resolve) => setTimeout(resolve, 500));
+        } catch (err) {
+          console.warn("[DiipMynd] Failed to end previous session client-side:", err);
+        }
+      }
+
+      let startRes = await fetch("/api/stream/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ provider }),
       });
+
+      if (!startRes.ok) {
+        const errData = await startRes.json().catch(() => ({}));
+        const errMsg = errData.error || "";
+        
+        // If constraint violation / race occurs (or temporary 500 error), retry once
+        if (
+          errMsg.includes("one_active_stream_per_user") ||
+          errMsg.includes("active stream") ||
+          errMsg.includes("duplicate key") ||
+          startRes.status === 409 ||
+          startRes.status === 500
+        ) {
+          console.warn("[DiipMynd] Conflict or server error detected on start session, retrying in 2 seconds...");
+          setConnectionState("reconnecting");
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+          
+          startRes = await fetch("/api/stream/start", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ provider }),
+          });
+        }
+      }
+
       const startData = await startRes.json();
       if (!startRes.ok) {
         throw new Error(startData.error || "Failed to start session on the server.");
       }
 
       activeSessionIdRef.current = startData.sessionId;
+
+      // Proactively schedule session expiry timer based on startData.expiresAt
+      if (startData.expiresAt && !user.isAdmin) {
+        const timeToExpiry = startData.expiresAt - Date.now();
+        console.log(`[DiipMynd] Proactively scheduling session end in ${timeToExpiry}ms based on credit reservation`);
+        if (sessionExpiryTimeoutRef.current) {
+          clearTimeout(sessionExpiryTimeoutRef.current);
+        }
+        sessionExpiryTimeoutRef.current = setTimeout(() => {
+          console.log("[DiipMynd] Proactive credit expiry timer reached, stopping stream");
+          handleStop();
+          setError({
+            code: "INSUFFICIENT_CREDITS" as any,
+            message: "Stream session ended (credit reservation expired).",
+          });
+        }, Math.max(0, timeToExpiry));
+      }
 
       const stream = localStreamRef.current || (await initCamera(provider));
       if (!isMountedRef.current || intentionalDisconnectRef.current) return;
@@ -724,6 +786,11 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
     clearReconnectTimer();
     disconnectRealtime();
 
+    if (sessionExpiryTimeoutRef.current) {
+      clearTimeout(sessionExpiryTimeoutRef.current);
+      sessionExpiryTimeoutRef.current = null;
+    }
+
     const sessionId = activeSessionIdRef.current;
     if (sessionId) {
       activeSessionIdRef.current = null;
@@ -760,6 +827,57 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
     }
   }, [clearReconnectTimer, disconnectRealtime, stopLocalStream, onBalanceUpdated]);
 
+  // ── Tab visibility / page unload handlers ─────────────────────────────
+  useEffect(() => {
+    let visibilityTimeout: ReturnType<typeof setTimeout> | null = null;
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        // Start 30s grace period to end session if user remains backgrounded
+        visibilityTimeout = setTimeout(() => {
+          if (activeSessionIdRef.current) {
+            console.log("[DiipMynd] Ending stream due to persistent background tab");
+            handleStop();
+            setError({
+              code: "INSUFFICIENT_CREDITS" as any,
+              message: "Stream stopped after being in the background for more than 30 seconds."
+            });
+          }
+        }, 30000);
+      } else {
+        // User came back, clear the grace period timeout
+        if (visibilityTimeout) {
+          clearTimeout(visibilityTimeout);
+          visibilityTimeout = null;
+        }
+      }
+    };
+
+    const handlePageHide = () => {
+      const sessionId = activeSessionIdRef.current;
+      if (sessionId) {
+        console.log("[DiipMynd] Tab hiding/unloading, sending best-effort beacon for session:", sessionId);
+        const blob = new Blob([JSON.stringify({ sessionId })], { type: "application/json" });
+        navigator.sendBeacon("/api/stream/end", blob);
+        
+        // Clean up client-side connections and camera
+        disconnectRealtime();
+        stopLocalStream();
+      }
+    };
+
+    window.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("pagehide", handlePageHide);
+
+    return () => {
+      window.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("pagehide", handlePageHide);
+      if (visibilityTimeout) {
+        clearTimeout(visibilityTimeout);
+      }
+    };
+  }, [handleStop, disconnectRealtime, stopLocalStream]);
+
   // ── Credit Heartbeat ──────────────────────────────────────────────────
   useEffect(() => {
     if (connectionState === "connected") {
@@ -770,11 +888,13 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
       heartbeatIntervalRef.current = setInterval(async () => {
         try {
           const res = await fetch("/api/stream/keepalive", { method: "POST" });
-          if (res.status === 410) {
+          if (res.status !== 200) {
             handleStop();
             setError({
               code: "INSUFFICIENT_CREDITS" as any,
-              message: "Stream session ended (timeout or out of credits).",
+              message: res.status === 410
+                ? "Stream session ended (timeout or out of credits)."
+                : `Stream session ended (server returned status ${res.status}).`,
             });
           }
         } catch (err) {

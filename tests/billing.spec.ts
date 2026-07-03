@@ -185,17 +185,45 @@ test.describe("Billing Security and Escrow Verification", () => {
     // 1. Give test user enough credits
     await supabaseAdmin.from("profiles").update({ credits: 100 }).eq("id", userId);
 
-    // 2. Hit the test race-condition API route (uses cookies/session from sharedPage)
-    const res = await sharedPage.request.post("/api/test/race-condition");
-    expect(res.status()).toBe(200);
-    const json = await res.json();
+    // 2. Execute concurrently using database RPC calls directly
+    const referenceId = `race-${Date.now()}`;
+    const [res1Result, res2Result] = await Promise.all([
+      supabaseAdmin.rpc("reserve_credits", {
+        p_user_id: userId,
+        p_amount: 10,
+        p_reference_type: "job",
+        p_reference_id: referenceId,
+        p_ttl_seconds: 120
+      }),
+      supabaseAdmin.rpc("reserve_credits", {
+        p_user_id: userId,
+        p_amount: 10,
+        p_reference_type: "job",
+        p_reference_id: referenceId,
+        p_ttl_seconds: 120
+      })
+    ]);
+
+    expect(res1Result.error).toBeNull();
+    expect(res2Result.error).toBeNull();
+
+    const data1 = Array.isArray(res1Result.data) ? res1Result.data[0] : res1Result.data as any;
+    const data2 = Array.isArray(res2Result.data) ? res2Result.data[0] : res2Result.data as any;
 
     // 3. Verify idempotency: both should succeed and yield the exact same reservationId
-    expect(json.success).toBe(true);
-    expect(json.res1.ok).toBe(true);
-    expect(json.res2.ok).toBe(true);
-    expect(json.res1.reservationId).not.toBeNull();
-    expect(json.res1.reservationId).toBe(json.res2.reservationId);
+    expect(data1.ok).toBe(true);
+    expect(data2.ok).toBe(true);
+    expect(data1.reservation_id).not.toBeNull();
+    expect(data1.reservation_id).toBe(data2.reservation_id);
+
+    // Clean up the created reservation
+    if (data1 && data1.ok && data1.reservation_id) {
+      await supabaseAdmin.rpc("settle_reservation", {
+        p_reservation_id: data1.reservation_id,
+        p_actual_cost: 0,
+        p_outcome: "failure"
+      });
+    }
   });
 
   test("Test 5: RLS Blocks Client-Side stream_sessions Insert", async () => {

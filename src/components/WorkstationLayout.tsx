@@ -20,6 +20,7 @@ import LiveAvatarStream from "./LiveAvatarStream";
 import TimelineAssembler from "./TimelineAssembler";
 import LibraryPanel from "./LibraryPanel";
 import TopUpModal from "./TopUpModal";
+import ComingSoon from "./ComingSoon";
 import AdminPanel from "./AdminPanel";
 import CommandPalette, { type CommandAction } from "./CommandPalette";
 import type { LibraryAsset } from "@/lib/library";
@@ -169,15 +170,16 @@ interface NavItem {
   group: "create" | "produce" | "manage";
   iconColor: string;       // active icon color (Tailwind text-* class)
   iconHover: string;       // group-hover icon color (Tailwind class)
+  locked?: boolean;
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { id: "storyboard", label: "Script & Story",      shortLabel: "Script",      icon: ScriptIcon,  hint: "1", group: "create",  iconColor: "text-amber-300",    iconHover: "group-hover:text-amber-300/80" },
-  { id: "broll",      label: "B-Roll Studio",       shortLabel: "B-Roll",      icon: FilmIcon,    hint: "2", group: "create",  iconColor: "text-rose-300",     iconHover: "group-hover:text-rose-300/80" },
-  { id: "character",  label: "Character Forge",     shortLabel: "Character",   icon: MaskIcon,    hint: "3", group: "create",  iconColor: "text-violet-300",   iconHover: "group-hover:text-violet-300/80" },
-  { id: "voice",      label: "AI Voice Lab",        shortLabel: "Voice Lab",   icon: WaveIcon,    hint: "4", group: "produce", iconColor: "text-cyan-300",     iconHover: "group-hover:text-cyan-300/80" },
+  { id: "storyboard", label: "Script & Story",      shortLabel: "Script",      icon: ScriptIcon,  hint: "1", group: "create",  iconColor: "text-amber-300",    iconHover: "group-hover:text-amber-300/80", locked: true },
+  { id: "broll",      label: "B-Roll Studio",       shortLabel: "B-Roll",      icon: FilmIcon,    hint: "2", group: "create",  iconColor: "text-rose-300",     iconHover: "group-hover:text-rose-300/80", locked: true },
+  { id: "character",  label: "Character Forge",     shortLabel: "Character",   icon: MaskIcon,    hint: "3", group: "create",  iconColor: "text-violet-300",   iconHover: "group-hover:text-violet-300/80", locked: true },
+  { id: "voice",      label: "AI Voice Lab",        shortLabel: "Voice Lab",   icon: WaveIcon,    hint: "4", group: "produce", iconColor: "text-cyan-300",     iconHover: "group-hover:text-cyan-300/80", locked: true },
   { id: "stream",     label: "Live Mask & Stream",  shortLabel: "Live Stream", icon: VideoIcon,   hint: "5", badge: "LIVE", group: "produce", iconColor: "text-red-300", iconHover: "group-hover:text-red-300/80" },
-  { id: "timeline",   label: "Timeline Assembler",  shortLabel: "Timeline",    icon: LayersIcon,  hint: "6", group: "produce", iconColor: "text-blue-300",    iconHover: "group-hover:text-blue-300/80" },
+  { id: "timeline",   label: "Timeline Assembler",  shortLabel: "Timeline",    icon: LayersIcon,  hint: "6", group: "produce", iconColor: "text-blue-300",    iconHover: "group-hover:text-blue-300/80", locked: true },
   { id: "library",    label: "Workspace Library",   shortLabel: "Library",     icon: FolderIcon,  hint: "7", group: "manage",  iconColor: "text-emerald-300",  iconHover: "group-hover:text-emerald-300/80" },
 ];
 
@@ -192,7 +194,7 @@ export default function WorkstationLayout({
   onLogout,
   onBalanceUpdated,
 }: WorkstationLayoutProps) {
-  const [activeTab, setActiveTab] = useState<TabId>("storyboard");
+  const [activeTab, setActiveTab] = useState<TabId>("stream");
 
   // ── Collapsible sidebar state ──
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -510,11 +512,11 @@ export default function WorkstationLayout({
                       id={`btn-nav-${tab.id}`}
                       onClick={() => setActiveTab(tab.id)}
                       title={isCollapsed ? tab.label : undefined}
-                      className={`nav-item group relative flex items-center gap-3 px-3 py-2.5 rounded-[10px] text-[13px] font-medium ${
+                      className={`nav-item group relative flex items-center gap-3 px-3 py-2.5 rounded-[10px] text-[13px] font-medium transition-all ${
                         isActive
                           ? "text-white"
                           : "text-neutral-500 hover:text-neutral-200 hover:bg-white/[0.03]"
-                      }`}
+                      } ${tab.locked && !isActive ? "opacity-45 hover:opacity-75" : ""}`}
                     >
                       {/* Active pill + left bar */}
                       {isActive && <span className="nav-pill-indicator" />}
@@ -536,6 +538,13 @@ export default function WorkstationLayout({
                         <span className="relative z-10 flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider text-white bg-white/10 border border-white/10">
                           <span className="live-dot animate-blink" />
                           {tab.badge}
+                        </span>
+                      )}
+
+                      {/* Soon badge for locked items */}
+                      {tab.locked && !isCollapsed && (
+                        <span className="relative z-10 px-1.5 py-0.5 rounded text-[8px] font-bold tracking-wider text-amber-300 bg-amber-500/10 border border-amber-500/20">
+                          SOON
                         </span>
                       )}
 
@@ -717,32 +726,19 @@ export default function WorkstationLayout({
         <div className="boot-fade boot-d-4 flex-1 px-6 md:px-8 py-6">
           <div key={activeTab} className="animate-fade-in-up h-full">
             {activeTab === "storyboard" && (
-              <StoryboardStudio
-                user={user}
-                onBalanceUpdated={onBalanceUpdated}
-                onNavigateToTab={handleNavigateToTab}
-              />
+              <ComingSoon feature="Script & Story" />
             )}
 
             {activeTab === "broll" && (
-              <BRollStudio
-                user={user}
-                onBalanceUpdated={onBalanceUpdated}
-                referenceImage={referenceImageUrl}
-                clearReferenceImage={() => setReferenceImageUrl(null)}
-              />
+              <ComingSoon feature="B-Roll Studio" />
             )}
 
             {activeTab === "character" && (
-              <CharacterForge
-                user={user}
-                onBalanceUpdated={onBalanceUpdated}
-                onUseAsReference={handleUseAsReference}
-              />
+              <ComingSoon feature="Character Forge" />
             )}
 
             {activeTab === "voice" && (
-              <VoiceLab user={user} onBalanceUpdated={onBalanceUpdated} />
+              <ComingSoon feature="AI Voice Lab" />
             )}
 
             {activeTab === "stream" && (
@@ -754,12 +750,7 @@ export default function WorkstationLayout({
             )}
 
             {activeTab === "timeline" && (
-              <TimelineAssembler
-                user={user}
-                onBalanceUpdated={onBalanceUpdated}
-                timelineAsset={timelineAsset}
-                clearTimelineAsset={() => setTimelineAsset(null)}
-              />
+              <ComingSoon feature="Timeline Assembler" />
             )}
 
             {activeTab === "library" && (

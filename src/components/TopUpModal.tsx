@@ -108,7 +108,7 @@ export default function TopUpModal({ userEmail, onClose, onBalanceUpdated }: Top
               💳 Instant Credit Funding
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-              Select your payment method below to purchase stream time credits.
+              Select your payment method below to purchase credits for streaming and generating assets.
             </p>
           </div>
           <button

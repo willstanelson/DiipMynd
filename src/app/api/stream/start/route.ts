@@ -67,7 +67,7 @@ export async function POST(request: Request) {
     }
 
     // 2. Insert stream session row server-side
-    const { data: session, error: insertError } = await supabaseAdmin
+    let insertResult = await supabaseAdmin
       .from("stream_sessions")
       .insert({
         id: sessionId,
@@ -79,7 +79,61 @@ export async function POST(request: Request) {
         last_keepalive_at: new Date().toISOString(),
       })
       .select()
-      .single();
+      .maybeSingle();
+
+    let insertError = insertResult.error;
+
+    if (insertError && insertError.code === "23505") {
+      console.warn(`[stream-start] Active session constraint hit for user ${currentUser.id}. Resolving race...`);
+      // Find the old active session(s) and end them
+      const { data: oldSessions } = await supabaseAdmin
+        .from("stream_sessions")
+        .select("id")
+        .eq("user_id", currentUser.id)
+        .eq("status", "active");
+
+      if (oldSessions && oldSessions.length > 0) {
+        for (const oldSess of oldSessions) {
+          console.warn(`[stream-start] Force ending orphan session: ${oldSess.id}`);
+          // Update status to ended
+          await supabaseAdmin
+            .from("stream_sessions")
+            .update({ status: "ended" })
+            .eq("id", oldSess.id);
+
+          // Settle the associated reservation
+          const { data: oldRes } = await supabaseAdmin
+            .from("credit_reservations")
+            .select("id, amount_reserved")
+            .eq("reference_type", "stream")
+            .eq("reference_id", oldSess.id)
+            .eq("status", "reserved")
+            .maybeSingle();
+
+          if (oldRes) {
+            const { settleReservationEscrow } = await import("@/lib/credits");
+            await settleReservationEscrow(oldRes.id, 0, "failure");
+          }
+        }
+      }
+
+      // Retry the insert once
+      insertResult = await supabaseAdmin
+        .from("stream_sessions")
+        .insert({
+          id: sessionId,
+          user_id: currentUser.id,
+          provider,
+          status: "active",
+          started_at: new Date().toISOString(),
+          last_billed_at: new Date().toISOString(),
+          last_keepalive_at: new Date().toISOString(),
+        })
+        .select()
+        .maybeSingle();
+      
+      insertError = insertResult.error;
+    }
 
     if (insertError) {
       if (
@@ -104,9 +158,10 @@ export async function POST(request: Request) {
       }
     }
 
-    // 3. For Decart provider, mint short-lived client token
+    // 3. Setup Decart / Fal TTL & expiresAt details
     let decartToken: string | null = null;
-    let expiresAt: number | null = null;
+    const decartTtl = currentUser.isAdmin ? 300 : Math.min(300, estimatedCost);
+    const expiresAt = Date.now() + decartTtl * 1000;
 
     if (provider === "decart") {
       const apiKey = process.env.DECART_API_KEY;
@@ -117,7 +172,7 @@ export async function POST(request: Request) {
 
       const client = createDecartClient({ apiKey });
       const token = await client.tokens.create({
-        expiresIn: 300, // 5 min TTL
+        expiresIn: decartTtl,
         allowedModels: ["lucy-2.1"],
       });
 
@@ -127,7 +182,6 @@ export async function POST(request: Request) {
       }
 
       decartToken = returnedKey;
-      expiresAt = Date.now() + 300 * 1000;
     }
 
     return NextResponse.json({

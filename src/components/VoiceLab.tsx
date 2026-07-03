@@ -72,6 +72,10 @@ export default function VoiceLab({ user, onBalanceUpdated }: VoiceLabProps) {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const getCreditCost = () => {
+    if (model === "fal-ai/elevenlabs/tts") {
+      const charCount = text.length;
+      return Math.max(5, Math.ceil((charCount / 1000) * 14));
+    }
     const matched = AUDIO_MODELS.find((m) => m.endpoint === model);
     return matched ? matched.creditCost : 10;
   };
@@ -247,7 +251,7 @@ export default function VoiceLab({ user, onBalanceUpdated }: VoiceLabProps) {
             >
               {AUDIO_MODELS.map((m) => (
                 <option key={m.id} value={m.endpoint} className="bg-neutral-900">
-                  {m.name} — ({m.creditCost} Credits)
+                  {m.name} — ({m.endpoint === "fal-ai/elevenlabs/tts" ? "14 Credits per 1,000 chars" : `${m.creditCost} Credits`})
                 </option>
               ))}
             </select>

@@ -21,8 +21,8 @@ export const PACKAGES: PricingPackage[] = [
   {
     id: "trial",
     name: "Trial Bundle",
-    credits: 600, // 10 minutes
-    durationText: "10 minutes stream time",
+    credits: 600,
+    durationText: "600 Workstation Credits",
     priceNGN: "₦49,500",
     priceNGNKobo: 4950000,
     priceUSD: "$33.00",
@@ -31,8 +31,8 @@ export const PACKAGES: PricingPackage[] = [
   {
     id: "starter",
     name: "Starter Bundle",
-    credits: 1800, // 30 minutes
-    durationText: "30 minutes stream time",
+    credits: 1800,
+    durationText: "1,800 Workstation Credits",
     priceNGN: "₦135,000",
     priceNGNKobo: 13500000,
     priceUSD: "$90.00",
@@ -42,8 +42,8 @@ export const PACKAGES: PricingPackage[] = [
   {
     id: "standard",
     name: "Standard Bundle",
-    credits: 3600, // 1 hour
-    durationText: "1 hour stream time",
+    credits: 3600,
+    durationText: "3,600 Workstation Credits",
     priceNGN: "₦243,000",
     priceNGNKobo: 24300000,
     priceUSD: "$162.00",
@@ -52,8 +52,8 @@ export const PACKAGES: PricingPackage[] = [
   {
     id: "pro",
     name: "Pro Bundle",
-    credits: 18000, // 5 hours
-    durationText: "5 hours stream time",
+    credits: 18000,
+    durationText: "18,000 Workstation Credits",
     priceNGN: "₦1,080,000",
     priceNGNKobo: 108000000,
     priceUSD: "$720.00",
@@ -110,26 +110,26 @@ export interface ModelOption {
 }
 
 export const IMAGE_MODELS: ModelOption[] = [
-  { id: "flux_2", name: "Flux.2 Pro", endpoint: "fal-ai/flux/pro", creditCost: 12 },
-  { id: "nano_banana_2_pro", name: "Nano Banana 2/Pro", endpoint: "fal-ai/nano-banana-pro", creditCost: 5 },
-  { id: "gpt_image_2", name: "GPT Image 2", endpoint: "openai/gpt-image-2", creditCost: 8 },
-  { id: "recraft_v4", name: "Recraft v4", endpoint: "fal-ai/recraft-v3", creditCost: 8 },
-  { id: "midjourney", name: "Playground v2.5 (Midjourney Alt)", endpoint: "fal-ai/playground-v25", creditCost: 5 },
+  { id: "flux_2", name: "Flux.2 Pro", endpoint: "fal-ai/flux/pro", creditCost: 5 },
+  { id: "nano_banana_2_pro", name: "Nano Banana 2/Pro", endpoint: "fal-ai/nano-banana-pro", creditCost: 1 },
+  { id: "gpt_image_2", name: "GPT Image 2", endpoint: "openai/gpt-image-2", creditCost: 3 },
+  { id: "recraft_v4", name: "Recraft v4", endpoint: "fal-ai/recraft-v3", creditCost: 3 },
+  { id: "midjourney", name: "Playground v2.5 (Midjourney Alt)", endpoint: "fal-ai/playground-v25", creditCost: 1 },
 ];
 
 export const VIDEO_MODELS: ModelOption[] = [
-  { id: "kling_pro", name: "Kling 3.0 Pro", endpoint: "fal-ai/kling-video/v3/pro/text-to-video", creditCost: 30 },
-  { id: "hunyuan_video", name: "Veo 3.1", endpoint: "fal-ai/veo3.1", creditCost: 25 },
-  { id: "luma_dream", name: "Sora 2 Pro", endpoint: "fal-ai/sora-2/text-to-video/pro", creditCost: 35 },
-  { id: "runway_gen_4_5", name: "Runway Gen 4.5 (Direct API)", endpoint: "runway-gen4.5", creditCost: 40 },
-  { id: "cogvideox_5b", name: "Pika 2.5 (Pika v2.1)", endpoint: "fal-ai/pika/v2.1/text-to-video", creditCost: 25 },
+  { id: "kling_pro", name: "Kling 3.0 Pro", endpoint: "fal-ai/kling-video/v3/pro/text-to-video", creditCost: 20 },
+  { id: "hunyuan_video", name: "Veo 3.1", endpoint: "fal-ai/veo3.1", creditCost: 13 },
+  { id: "luma_dream", name: "Sora 2 Pro", endpoint: "fal-ai/sora-2/text-to-video/pro", creditCost: 27 },
+  { id: "runway_gen_4_5", name: "Runway Gen 4.5 (Direct API)", endpoint: "runway-gen4.5", creditCost: 33 },
+  { id: "cogvideox_5b", name: "Pika 2.5 (Pika v2.1)", endpoint: "fal-ai/pika/v2.1/text-to-video", creditCost: 13 },
 ];
 
 export const AUDIO_MODELS: ModelOption[] = [
-  { id: "kokoro", name: "Kokoro (Presets)", endpoint: "fal-ai/kokoro", creditCost: 2 },
-  { id: "f5_tts", name: "F5-TTS (Voice Cloning)", endpoint: "fal-ai/f5-tts", creditCost: 10 },
-  { id: "xtts_v2", name: "XTTS-v2 (Voice Cloning / Vozo Alt)", endpoint: "fal-ai/xtts-v2", creditCost: 10 },
-  { id: "elevenlabs", name: "ElevenLabs TTS", endpoint: "fal-ai/elevenlabs/tts", creditCost: 15 },
-  { id: "heygen", name: "HeyGen Talking Avatar", endpoint: "fal-ai/heygen/avatar-v/digital-twin", creditCost: 25 },
-  { id: "synclabs", name: "Sync Labs LipSync", endpoint: "fal-ai/sync-lipsync/v2/pro", creditCost: 20 },
+  { id: "kokoro", name: "Kokoro (Presets)", endpoint: "fal-ai/kokoro", creditCost: 1 },
+  { id: "f5_tts", name: "F5-TTS (Voice Cloning)", endpoint: "fal-ai/f5-tts", creditCost: 2 },
+  { id: "xtts_v2", name: "XTTS-v2 (Voice Cloning / Vozo Alt)", endpoint: "fal-ai/xtts-v2", creditCost: 2 },
+  { id: "elevenlabs", name: "ElevenLabs TTS (v3)", endpoint: "fal-ai/elevenlabs/tts/eleven-v3", creditCost: 14 },
+  { id: "heygen", name: "HeyGen Talking Avatar", endpoint: "fal-ai/heygen/avatar-v/digital-twin", creditCost: 36 },
+  { id: "synclabs", name: "Sync Labs LipSync", endpoint: "fal-ai/sync-lipsync/v2/pro", creditCost: 22 },
 ];
