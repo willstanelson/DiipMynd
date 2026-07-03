@@ -7,6 +7,9 @@ export interface SafeUser {
   isAdmin: boolean;
   createdAt: string;
   isSuspended?: boolean;
+  termsAcceptedAt?: string | null;
+  kycStatus?: "none" | "skipped" | "pending" | "verified";
+  kycCreditsAwarded?: boolean;
 }
 
 export async function getCurrentUser(): Promise<SafeUser | null> {
@@ -24,7 +27,7 @@ export async function getCurrentUser(): Promise<SafeUser | null> {
     // Try reading user profile
     let { data: profile, error: profileError } = await supabaseAdmin
       .from("profiles")
-      .select("credits, is_admin, created_at")
+      .select("credits, is_admin, created_at, terms_accepted_at, kyc_status, kyc_credits_awarded")
       .eq("id", user.id)
       .maybeSingle();
 
@@ -38,7 +41,7 @@ export async function getCurrentUser(): Promise<SafeUser | null> {
       const { error: upsertError } = await supabaseAdmin
         .from("profiles")
         .upsert(
-          { id: user.id, email: user.email || "", credits: 100, is_admin: false },
+          { id: user.id, email: user.email || "", credits: 0, is_admin: false },
           { onConflict: "id", ignoreDuplicates: true }
         );
 
@@ -50,7 +53,7 @@ export async function getCurrentUser(): Promise<SafeUser | null> {
       // Fetch the profile to return (guarantees we get the row whether trigger or fallback inserted it)
       const { data: newProfile, error: fetchError } = await supabaseAdmin
         .from("profiles")
-        .select("credits, is_admin, created_at")
+        .select("credits, is_admin, created_at, terms_accepted_at, kyc_status, kyc_credits_awarded")
         .eq("id", user.id)
         .single();
 
@@ -67,6 +70,9 @@ export async function getCurrentUser(): Promise<SafeUser | null> {
       credits: profile.credits,
       isAdmin: profile.is_admin,
       createdAt: profile.created_at,
+      termsAcceptedAt: profile.terms_accepted_at,
+      kycStatus: profile.kyc_status as any,
+      kycCreditsAwarded: profile.kyc_credits_awarded,
     };
   } catch (err) {
     console.error("[auth] Failed to retrieve current user:", err);

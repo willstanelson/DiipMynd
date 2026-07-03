@@ -23,6 +23,8 @@ import TopUpModal from "./TopUpModal";
 import ComingSoon from "./ComingSoon";
 import AdminPanel from "./AdminPanel";
 import CommandPalette, { type CommandAction } from "./CommandPalette";
+import TermsAndKycModal from "./TermsAndKycModal";
+
 import type { LibraryAsset } from "@/lib/library";
 
 interface WorkstationLayoutProps {
@@ -209,6 +211,16 @@ export default function WorkstationLayout({
   // ── Command palette state ──
   const [isPaletteOpen, setIsPaletteOpen] = useState(false);
 
+  // Shared pipeline references
+  const [referenceImageUrl, setReferenceImageUrl] = useState<string | null>(null);
+  const [timelineAsset, setTimelineAsset] = useState<any | null>(null);
+
+  // Drawer and TopUp states
+  const [isLibraryDrawerOpen, setIsLibraryDrawerOpen] = useState(false);
+  const [isTopUpOpen, setIsTopUpOpen] = useState(false);
+  const [isAdminPanelOpen, setIsAdminPanelOpen] = useState(false);
+  const [isKycForceOpen, setIsKycForceOpen] = useState(false);
+
   // ── Library assets for command palette search ──
   // Fetched on mount and refreshed whenever any studio dispatches the
   // 'library-updated' window event (after generating/saving/deleting assets).
@@ -227,15 +239,6 @@ export default function WorkstationLayout({
     window.addEventListener("library-updated", fetchAssets);
     return () => window.removeEventListener("library-updated", fetchAssets);
   }, []);
-
-  // Shared pipeline references
-  const [referenceImageUrl, setReferenceImageUrl] = useState<string | null>(null);
-  const [timelineAsset, setTimelineAsset] = useState<any | null>(null);
-
-  // Drawer and TopUp states
-  const [isLibraryDrawerOpen, setIsLibraryDrawerOpen] = useState(false);
-  const [isTopUpOpen, setIsTopUpOpen] = useState(false);
-  const [isAdminPanelOpen, setIsAdminPanelOpen] = useState(false);
 
   // ── Spotlight cursor ──
   // Track cursor position via CSS variables on documentElement — no React
@@ -701,6 +704,17 @@ export default function WorkstationLayout({
               </span>
             </button>
 
+            {user.kycStatus === "skipped" && (
+              <button
+                onClick={() => setIsKycForceOpen(true)}
+                className="px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs font-semibold flex items-center gap-1.5 hover:bg-amber-500/20 active:scale-95 transition-all cursor-pointer shadow-md"
+                title="Your identity is unverified. Click here to verify identity now (no credits will be awarded)."
+              >
+                <span>⚠️</span>
+                <span>Verify Account</span>
+              </button>
+            )}
+
             {user.isAdmin && (
               <button
                 id="btn-admin-panel"
@@ -719,6 +733,7 @@ export default function WorkstationLayout({
               <DatabaseIcon className="w-3.5 h-3.5 text-cyan-300" />
               <span className="hidden sm:inline">Storage</span>
             </button>
+
           </div>
         </header>
 
@@ -807,6 +822,26 @@ export default function WorkstationLayout({
           currentUserId={user.id}
           onClose={() => setIsAdminPanelOpen(false)}
           onBalanceUpdated={onBalanceUpdated}
+        />
+      )}
+      {/* KYC / Terms Gate Lockscreen Overlay */}
+      {(!user.termsAcceptedAt || user.kycStatus === "none") && (
+        <TermsAndKycModal
+          userEmail={user.email}
+          onClose={onBalanceUpdated}
+          onBalanceUpdated={onBalanceUpdated}
+          initialStep={!user.termsAcceptedAt ? "terms" : "kyc"}
+        />
+      )}
+
+      {/* KYC Verification manual trigger */}
+      {isKycForceOpen && (
+        <TermsAndKycModal
+          userEmail={user.email}
+          onClose={() => setIsKycForceOpen(false)}
+          onBalanceUpdated={onBalanceUpdated}
+          initialStep="kyc"
+          forfeitedCreditsWarningOnly={true}
         />
       )}
     </div>

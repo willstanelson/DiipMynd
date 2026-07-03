@@ -38,6 +38,82 @@ interface CreditRequest {
   txHash?: string;
 }
 
+interface BundleConversion {
+  packageId: string;
+  diipMyndCredits: number;
+  diipMyndUSD: string;
+  diipMyndNGN: string;
+  decartCredits: number;
+  decartUSD: string;
+  decartNGN: string;
+}
+
+const BUNDLE_CONVERSIONS: Record<string, BundleConversion> = {
+  trial: {
+    packageId: "trial",
+    diipMyndCredits: 600,
+    diipMyndUSD: "$33.00",
+    diipMyndNGN: "₦49,500",
+    decartCredits: 1200,
+    decartUSD: "$12.00",
+    decartNGN: "₦18,000",
+  },
+  starter: {
+    packageId: "starter",
+    diipMyndCredits: 1800,
+    diipMyndUSD: "$90.00",
+    diipMyndNGN: "₦135,000",
+    decartCredits: 3600,
+    decartUSD: "$36.00",
+    decartNGN: "₦54,000",
+  },
+  standard: {
+    packageId: "standard",
+    diipMyndCredits: 3600,
+    diipMyndUSD: "$162.00",
+    diipMyndNGN: "₦243,000",
+    decartCredits: 7200,
+    decartUSD: "$72.00",
+    decartNGN: "₦108,000",
+  },
+  pro: {
+    packageId: "pro",
+    diipMyndCredits: 18000,
+    diipMyndUSD: "$720.00",
+    diipMyndNGN: "₦1,080,000",
+    decartCredits: 36000,
+    decartUSD: "$360.00",
+    decartNGN: "₦540,000",
+  },
+};
+
+const getConversionInfo = (amount: number, packageId?: string) => {
+  const cleanId = (packageId || "").toLowerCase();
+  if (BUNDLE_CONVERSIONS[cleanId]) {
+    return BUNDLE_CONVERSIONS[cleanId];
+  }
+  
+  if (amount === 600) return BUNDLE_CONVERSIONS.trial;
+  if (amount === 1800) return BUNDLE_CONVERSIONS.starter;
+  if (amount === 3600) return BUNDLE_CONVERSIONS.standard;
+  if (amount === 18000) return BUNDLE_CONVERSIONS.pro;
+
+  const streamingSeconds = amount;
+  const decartCredits = streamingSeconds * 2;
+  const decartUSD = streamingSeconds * 0.02;
+  const decartNGN = decartUSD * 1500;
+
+  return {
+    packageId: "custom",
+    diipMyndCredits: amount,
+    diipMyndUSD: "N/A",
+    diipMyndNGN: "N/A",
+    decartCredits,
+    decartUSD: `$${decartUSD.toFixed(2)}`,
+    decartNGN: `₦${decartNGN.toLocaleString(undefined, { maximumFractionDigits: 0 })}`,
+  };
+};
+
 export default function AdminPanel({ onClose, onBalanceUpdated, currentUserId }: AdminPanelProps) {
   const [activeTab, setActiveTab] = useState<"users" | "requests">("users");
   const [users, setUsers] = useState<SafeUser[]>([]);
@@ -336,17 +412,19 @@ export default function AdminPanel({ onClose, onBalanceUpdated, currentUserId }:
                 ) : (
                   <table className="w-full text-left text-xs text-slate-700 dark:text-slate-300">
                     <thead>
-                      <tr className="border-b border-slate-100 dark:border-slate-800 text-slate-400 dark:text-slate-500 uppercase text-[9px] tracking-widest">
+                      <tr className="border-b border-slate-100 dark:border-slate-800 text-slate-400 dark:text-slate-550 uppercase text-[9px] tracking-widest">
                         <th className="py-2.5">Email</th>
                         <th className="py-2.5">Network</th>
-                        <th className="py-2.5">Tx Hash (Explorer)</th>
-                        <th className="py-2.5 text-right">Credits</th>
+                        <th className="py-2.5">Tx Hash</th>
+                        <th className="py-2.5 text-right">DiipMynd Credits</th>
+                        <th className="py-2.5 text-right">Decart Equivalent</th>
                         <th className="py-2.5 text-right">Action</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-855 dark:divide-slate-800">
                       {requests.map((req) => {
                         const link = getExplorerLink(req.paymentMethod, req.txHash);
+                        const conv = getConversionInfo(req.amount, req.packageId);
                         return (
                           <tr key={req.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
                             <td className="py-3 pr-2 truncate max-w-[120px]" title={req.email}>
@@ -370,8 +448,17 @@ export default function AdminPanel({ onClose, onBalanceUpdated, currentUserId }:
                                 <span className="font-mono text-[10px] text-slate-400 dark:text-slate-550">{req.txHash || "N/A"}</span>
                               )}
                             </td>
+                            <td className="py-3 text-right tabular-nums font-semibold text-indigo-600 dark:text-indigo-400">
+                              <div>+{conv.diipMyndCredits.toLocaleString()} cr</div>
+                              <div className="text-[10px] text-slate-500 dark:text-slate-500 font-medium">
+                                {conv.diipMyndUSD} ({conv.diipMyndNGN})
+                              </div>
+                            </td>
                             <td className="py-3 text-right tabular-nums font-semibold text-emerald-600 dark:text-emerald-400">
-                              +{req.amount}
+                              <div>+{conv.decartCredits.toLocaleString()} cr</div>
+                              <div className="text-[10px] text-slate-500 dark:text-slate-500 font-medium">
+                                {conv.decartUSD} ({conv.decartNGN})
+                              </div>
                             </td>
                             <td className="py-2 text-right">
                               <button
