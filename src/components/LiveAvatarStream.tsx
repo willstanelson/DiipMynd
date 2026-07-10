@@ -255,8 +255,8 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
       const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus")
         ? "video/webm;codecs=vp9,opus"
         : MediaRecorder.isTypeSupported("video/webm")
-        ? "video/webm"
-        : "";
+          ? "video/webm"
+          : "";
       if (!mimeType) {
         console.warn("[recorder] No supported MediaRecorder mimeType; skipping archival for this session.");
         return;
@@ -694,7 +694,7 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
       if (!startRes.ok) {
         const errData = await startRes.json().catch(() => ({}));
         const errMsg = errData.error || "";
-        
+
         // If constraint violation / race occurs (or temporary 500 error), retry once
         if (
           errMsg.includes("one_active_stream_per_user") ||
@@ -706,7 +706,7 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
           console.warn("[DiipMynd] Conflict or server error detected on start session, retrying in 2 seconds...");
           setConnectionState("reconnecting");
           await new Promise((resolve) => setTimeout(resolve, 2000));
-          
+
           startRes = await fetch("/api/stream/start", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -743,15 +743,15 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
       if (!isMountedRef.current || intentionalDisconnectRef.current) return;
 
       if (realtimeClientRef.current) {
-        try { realtimeClientRef.current.disconnect(); } catch {}
+        try { realtimeClientRef.current.disconnect(); } catch { }
         realtimeClientRef.current = null;
       }
       if (falRealtimeConnectionRef.current) {
-        try { falRealtimeConnectionRef.current.close(); } catch {}
+        try { falRealtimeConnectionRef.current.close(); } catch { }
         falRealtimeConnectionRef.current = null;
       }
       if (falPeerConnectionRef.current) {
-        try { falPeerConnectionRef.current.close(); } catch {}
+        try { falPeerConnectionRef.current.close(); } catch { }
         falPeerConnectionRef.current = null;
       }
 
@@ -980,7 +980,7 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
         console.log("[DiipMynd] Tab hiding/unloading, sending best-effort beacon for session:", sessionId);
         const blob = new Blob([JSON.stringify({ sessionId })], { type: "application/json" });
         navigator.sendBeacon("/api/stream/end", blob);
-        
+
         // Clean up client-side connections and camera
         disconnectRealtime();
         stopLocalStream();
@@ -1369,41 +1369,41 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
         <div className="md:col-span-5 w-full flex flex-col gap-4 p-5 rounded-2xl glass-panel">
           {/* Provider Selector — monochrome segmented control */}
 
-            <div className="flex flex-col gap-2">
-              <label className="text-[10px] text-neutral-600 font-semibold tracking-[0.18em] uppercase">
-                AI Provider
-              </label>
-              <div className="flex items-center gap-1.5 p-1 rounded-xl bg-white/[0.025] border border-white/[0.06]">
-                {(["auto", "decart", "fal"] as ProviderPreference[]).map((pref) => {
-                  const isActive = providerPreference === pref;
-                  const Icon = pref === "auto" ? ShuffleIcon : pref === "decart" ? BoltMiniIcon : GlobeIcon;
-                  return (
-                    <button
-                      key={pref}
-                      onClick={() => setProviderPreference(pref)}
-                      disabled={isSessionActive}
-                      className={`
+          <div className="flex flex-col gap-2">
+            <label className="text-[10px] text-neutral-600 font-semibold tracking-[0.18em] uppercase">
+              AI Provider
+            </label>
+            <div className="flex items-center gap-1.5 p-1 rounded-xl bg-white/[0.025] border border-white/[0.06]">
+              {(["auto", "decart", "fal"] as ProviderPreference[]).map((pref) => {
+                const isActive = providerPreference === pref;
+                const Icon = pref === "auto" ? ShuffleIcon : pref === "decart" ? BoltMiniIcon : GlobeIcon;
+                return (
+                  <button
+                    key={pref}
+                    onClick={() => setProviderPreference(pref)}
+                    disabled={isSessionActive}
+                    className={`
                         flex-1 px-3 py-2 rounded-lg text-[11px] font-bold tracking-wide uppercase
                         transition-all duration-200 cursor-pointer flex items-center justify-center gap-1.5
                         ${isActive
-                          ? "bg-white text-black shadow-md"
-                          : "text-neutral-500 hover:text-neutral-200 hover:bg-white/[0.04]"
-                        }
+                        ? "bg-white text-black shadow-md"
+                        : "text-neutral-500 hover:text-neutral-200 hover:bg-white/[0.04]"
+                      }
                         disabled:opacity-40 disabled:cursor-not-allowed
                       `}
-                    >
-                      <Icon className={`w-3 h-3 ${isActive ? "text-black" : pref === "auto" ? "text-violet-300" : pref === "decart" ? "text-amber-300" : "text-cyan-300"}`} />
-                      {pref === "auto" ? "Auto" : pref === "decart" ? "Decart" : "Fal.ai"}
-                    </button>
-                  );
-                })}
-              </div>
-              {providerPreference === "auto" && !isSessionActive && (
-                <p className="text-[10px] text-neutral-600 font-medium leading-relaxed">
-                  Smart Router probes latency and picks the fastest provider.
-                </p>
-              )}
+                  >
+                    <Icon className={`w-3 h-3 ${isActive ? "text-black" : pref === "auto" ? "text-violet-300" : pref === "decart" ? "text-amber-300" : "text-cyan-300"}`} />
+                    {pref === "auto" ? "Auto" : pref === "decart" ? "Decart" : "Fal.ai"}
+                  </button>
+                );
+              })}
             </div>
+            {providerPreference === "auto" && !isSessionActive && (
+              <p className="text-[10px] text-neutral-600 font-medium leading-relaxed">
+                Smart Router probes latency and picks the fastest provider.
+              </p>
+            )}
+          </div>
 
 
           {/* Prompt input */}
