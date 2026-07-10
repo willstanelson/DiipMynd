@@ -309,7 +309,25 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
     (stream: MediaStream) => {
       const sessionId = activeSessionIdRef.current;
       if (!sessionId) return;
-      // Guard against double-start (e.g. reconnect firing onRemoteStream/ontrack twice)
+
+      // Only start recording once the stream actually has a video track.
+      // If it doesn't yet, listen for the native browser "addtrack" event on
+      // this exact stream object — this fires regardless of how many times
+      // (or how few) the Decart/Fal callback itself is invoked.
+      if (stream.getVideoTracks().length === 0) {
+        console.log("[recorder] No video track yet — waiting for addtrack event on this stream.");
+        const onAddTrack = () => {
+          if (stream.getVideoTracks().length > 0) {
+            stream.removeEventListener("addtrack", onAddTrack);
+            beginSessionRecording(stream);
+          }
+        };
+        stream.addEventListener("addtrack", onAddTrack);
+        return;
+      }
+
+      // Guard against double-start (e.g. reconnect firing onRemoteStream/ontrack twice,
+      // or both the addtrack listener AND a re-invoked SDK callback firing)
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") return;
 
       recordingSessionIdRef.current = sessionId;
