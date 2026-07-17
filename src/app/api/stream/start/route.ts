@@ -197,7 +197,7 @@ export async function POST(request: Request) {
 
     // 3. Setup Decart / Fal TTL & expiration details
     let decartToken: string | null = null;
-    const tokenTtl = currentUser.isAdmin ? 300 : Math.min(300, estimatedCost);
+    const tokenTtl = currentUser.isAdmin ? 300 : Math.min(300, estimatedCost + 60);
     const tokenExpiresAt = Date.now() + tokenTtl * 1000;
     const reservationExpiresAt = currentUser.isAdmin 
       ? Date.now() + 86400 * 1000

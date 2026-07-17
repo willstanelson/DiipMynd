@@ -37,7 +37,7 @@ export async function POST(request: Request) {
     let session: any = null;
     const { data: dbSession, error: fetchErr } = await supabaseAdmin
       .from("stream_sessions")
-      .select("id, started_at, status, user_id")
+      .select("id, started_at, connected_at, status, user_id")
       .eq("id", sessionId)
       .single();
 
@@ -80,10 +80,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true, message: "Session already ended." });
     }
 
-    // 2. Calculate actual cost based on elapsed seconds
+    // 2. Calculate actual cost based on elapsed seconds (relative to connected_at, falling back to started_at)
     const now = new Date();
-    const startedAt = new Date(session.started_at);
-    const elapsedSeconds = Math.max(0, Math.floor((now.getTime() - startedAt.getTime()) / 1000));
+    const startTime = session.connected_at ? new Date(session.connected_at) : new Date(session.started_at);
+    const elapsedSeconds = Math.max(0, Math.floor((now.getTime() - startTime.getTime()) / 1000));
 
     // 3. Settle session and reservation atomically via RPC
     if (currentUser.isAdmin) {

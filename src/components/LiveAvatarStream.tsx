@@ -488,6 +488,105 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
     [clearReconnectTimer]
   );
 
+  // ── Stop session handler ──────────────────────────────────────────────
+  const handleStop = useCallback(() => {
+    intentionalDisconnectRef.current = true;
+    clearReconnectTimer();
+    disconnectRealtime();
+    stopSessionRecording();
+    setCountdownSeconds(null);
+
+    if (sessionExpiryTimeoutRef.current) {
+      clearTimeout(sessionExpiryTimeoutRef.current);
+      sessionExpiryTimeoutRef.current = null;
+    }
+
+    const sessionId = activeSessionIdRef.current;
+    if (sessionId) {
+      activeSessionIdRef.current = null;
+      setIsEnding(true);
+      fetch("/api/stream/end", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId }),
+      }).then(() => {
+        onBalanceUpdated();
+      }).catch((err) => {
+        console.error("[stream-end] Failed to gracefully close stream session:", err);
+      }).finally(() => {
+        setIsEnding(false);
+      });
+    }
+
+    if (streamIntervalRef.current) {
+      clearInterval(streamIntervalRef.current);
+      streamIntervalRef.current = null;
+    }
+    if (remoteVideoRef.current) {
+      remoteVideoRef.current.srcObject = null;
+    }
+
+    stopLocalStream();
+    setConnectionState("disconnected");
+    setRetryCount(0);
+    setDiagnosticsStats(null);
+    setIsMicMuted(false);
+    setActiveProvider(null);
+    setRoutingReason("");
+
+    if (heartbeatIntervalRef.current) {
+      clearInterval(heartbeatIntervalRef.current);
+      heartbeatIntervalRef.current = null;
+    }
+  }, [clearReconnectTimer, disconnectRealtime, stopLocalStream, onBalanceUpdated, stopSessionRecording]);
+
+  // ── Connection Established Billing & Timer Rebase ─────────────────────
+  const handleConnectionConnected = useCallback(async () => {
+    setConnectionState("connected");
+    setRetryCount(0);
+
+    const sessionId = activeSessionIdRef.current;
+    if (!sessionId) return;
+
+    try {
+      console.log(`[DiipMynd] Signaling stream connection established for session ${sessionId}...`);
+      const res = await fetch("/api/stream/connect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.reservationExpiresAt && !user.isAdmin) {
+          const timeToExpiry = data.reservationExpiresAt - Date.now();
+          console.log(`[DiipMynd] Billing rebased. Expiry extended by ${timeToExpiry}ms.`);
+          
+          // Re-calculate countdown seconds
+          const initialSeconds = Math.max(0, Math.floor(timeToExpiry / 1000));
+          setCountdownSeconds(initialSeconds);
+
+          // Re-arm the proactive timeout timer
+          if (sessionExpiryTimeoutRef.current) {
+            clearTimeout(sessionExpiryTimeoutRef.current);
+          }
+          sessionExpiryTimeoutRef.current = setTimeout(() => {
+            console.log("[DiipMynd] Rebased credit expiry timer reached, stopping stream");
+            handleStop();
+            setError({
+              code: "INSUFFICIENT_CREDITS" as any,
+              message: "Stream session ended (credit reservation expired).",
+            });
+          }, Math.max(0, timeToExpiry));
+        }
+      } else {
+        console.warn("[DiipMynd] Failed to notify server of connection status:", res.status);
+      }
+    } catch (err) {
+      console.error("[DiipMynd] Error notifying connection signal:", err);
+    }
+  }, [user.isAdmin, handleStop]);
+
   // ── Decart SDK Connection Flow ────────────────────────────────────────
   const connectToDecart = useCallback(
     async (stream: MediaStream, decartToken: string, startSessionFn: () => Promise<void>) => {
@@ -531,8 +630,7 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
         switch (state) {
           case "connected":
           case "generating":
-            setConnectionState("connected");
-            setRetryCount(0);
+            handleConnectionConnected();
             break;
           case "connecting":
             setConnectionState("connecting");
@@ -548,10 +646,9 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
         }
       });
 
-      setConnectionState("connected");
-      setRetryCount(0);
+      handleConnectionConnected();
     },
-    [scheduleReconnect, beginSessionRecording]
+    [scheduleReconnect, beginSessionRecording, handleConnectionConnected]
   );
 
   // ── Fal.ai Manual WebRTC Connection Flow ──────────────────────────────
@@ -613,8 +710,7 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
               console.log("[DiipMynd] PeerConnection state:", pc.connectionState);
               switch (pc.connectionState) {
                 case "connected":
-                  setConnectionState("connected");
-                  setRetryCount(0);
+                  handleConnectionConnected();
                   break;
                 case "connecting":
                   setConnectionState("connecting");
@@ -671,7 +767,7 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
 
       falRealtimeConnectionRef.current = connection;
     },
-    [scheduleReconnect, beginSessionRecording]
+    [scheduleReconnect, beginSessionRecording, handleConnectionConnected]
   );
 
 
@@ -945,57 +1041,7 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
     setIsMicMuted((prev) => !prev);
   }, []);
 
-  // ── Stop session handler ──────────────────────────────────────────────
-  const handleStop = useCallback(() => {
-    intentionalDisconnectRef.current = true;
-    clearReconnectTimer();
-    disconnectRealtime();
-    stopSessionRecording();
-    setCountdownSeconds(null);
-
-    if (sessionExpiryTimeoutRef.current) {
-      clearTimeout(sessionExpiryTimeoutRef.current);
-      sessionExpiryTimeoutRef.current = null;
-    }
-
-    const sessionId = activeSessionIdRef.current;
-    if (sessionId) {
-      activeSessionIdRef.current = null;
-      setIsEnding(true);
-      fetch("/api/stream/end", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId }),
-      }).then(() => {
-        onBalanceUpdated();
-      }).catch((err) => {
-        console.error("[stream-end] Failed to gracefully close stream session:", err);
-      }).finally(() => {
-        setIsEnding(false);
-      });
-    }
-
-    if (streamIntervalRef.current) {
-      clearInterval(streamIntervalRef.current);
-      streamIntervalRef.current = null;
-    }
-    if (remoteVideoRef.current) {
-      remoteVideoRef.current.srcObject = null;
-    }
-
-    stopLocalStream();
-    setConnectionState("disconnected");
-    setRetryCount(0);
-    setDiagnosticsStats(null);
-    setIsMicMuted(false);
-    setActiveProvider(null);
-    setRoutingReason("");
-
-    if (heartbeatIntervalRef.current) {
-      clearInterval(heartbeatIntervalRef.current);
-      heartbeatIntervalRef.current = null;
-    }
-  }, [clearReconnectTimer, disconnectRealtime, stopLocalStream, onBalanceUpdated, stopSessionRecording]);
+  // ── Stop session and connection handlers (Moved up to avoid block-scoping compile errors) ──
 
   // ── Tab visibility / page unload handlers ─────────────────────────────
   useEffect(() => {

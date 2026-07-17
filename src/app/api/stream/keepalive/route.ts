@@ -122,7 +122,7 @@ async function sweepStaleSessions() {
 
   const { data: staleSessions, error } = await supabaseAdmin
     .from("stream_sessions")
-    .select("id, user_id, started_at, last_keepalive_at")
+    .select("id, user_id, started_at, connected_at, last_keepalive_at")
     .eq("status", "active")
     .lt("last_keepalive_at", cutoff)
     .limit(SWEEP_BATCH_LIMIT);
@@ -145,10 +145,10 @@ async function sweepStaleSessions() {
 
       const isAdmin = !!profile?.is_admin;
 
-      const startedAt = new Date(session.started_at);
+      const startTime = session.connected_at ? new Date(session.connected_at) : new Date(session.started_at);
       const lastKeepalive = new Date(session.last_keepalive_at);
       const elapsedSeconds = Math.max(0, Math.floor(
-        (lastKeepalive.getTime() - startedAt.getTime()) / 1000
+        (lastKeepalive.getTime() - startTime.getTime()) / 1000
       ));
 
       if (isAdmin) {
