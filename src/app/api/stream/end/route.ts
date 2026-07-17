@@ -80,54 +80,35 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true, message: "Session already ended." });
     }
 
-    // 2. Fetch reservation
-    let reservation: any = null;
-    const { data: dbReservation, error: resErr } = await supabaseAdmin
-      .from("credit_reservations")
-      .select("id, amount_reserved")
-      .eq("reference_type", "stream")
-      .eq("reference_id", sessionId)
-      .eq("status", "reserved")
-      .maybeSingle();
+    // 2. Calculate actual cost based on elapsed seconds
+    const now = new Date();
+    const startedAt = new Date(session.started_at);
+    const elapsedSeconds = Math.max(0, Math.floor((now.getTime() - startedAt.getTime()) / 1000));
 
-    if (resErr) {
-      if (
-        resErr.message.includes("permission denied") ||
-        resErr.message.includes("does not exist") ||
-        resErr.message.includes("relation")
-      ) {
-        if (process.env.NODE_ENV === "production" && process.env.NEXT_PUBLIC_ALLOW_MOCK_ESCROW !== "true") {
-          throw new Error("CRITICAL: credit_reservations table not found or read denied. Simulated escrow fallback is disabled in non-development environments.");
-        }
-        console.warn("[stream-end] credit_reservations table read denied or missing. Checking simulated local reservations.");
-        const { findMockReservationByReference } = require("@/lib/credits");
-        reservation = findMockReservationByReference("stream", sessionId);
-      } else {
-        return NextResponse.json({ error: "Failed to fetch reservation." }, { status: 500 });
-      }
-    } else {
-      reservation = dbReservation;
-    }
-
-    // 3. Mark session as ended
-    try {
-      await supabaseAdmin
+    // 3. Settle session and reservation atomically via RPC
+    if (currentUser.isAdmin) {
+      // Admins don't have reservations, just mark ended
+      const { error: updateErr } = await supabaseAdmin
         .from("stream_sessions")
         .update({ status: "ended" })
         .eq("id", sessionId);
-    } catch (e: any) {
-      console.warn("[stream-end] stream_sessions status update skipped/failed:", e.message || e);
-    }
+      if (updateErr) {
+        throw new Error(`Failed to end admin stream session: ${updateErr.message}`);
+      }
+      console.log(`[stream-end] Ended admin session ${sessionId}`);
+    } else {
+      const { data: settleResult, error: settleErr } = await supabaseAdmin.rpc("settle_stream_session", {
+        p_session_id: sessionId,
+        p_actual_cost: elapsedSeconds,
+        p_outcome: "success"
+      });
 
-    // 4. Settle reservation
-    if (reservation) {
-      const now = new Date();
-      const startedAt = new Date(session.started_at);
-      const elapsedSeconds = Math.max(0, Math.floor((now.getTime() - startedAt.getTime()) / 1000));
-      const actualCost = Math.min(reservation.amount_reserved, elapsedSeconds);
+      if (settleErr) {
+        console.error(`[stream-end] Failed to settle session atomically:`, settleErr.message);
+        return NextResponse.json({ error: "Failed to settle reservation hold." }, { status: 500 });
+      }
 
-      await settleReservationEscrow(reservation.id, actualCost, "success");
-      console.log(`[stream-end] Settled session ${sessionId}. Duration: ${actualCost}s. Refunded: ${reservation.amount_reserved - actualCost} credits.`);
+      console.log(`[stream-end] Atomic settled session ${sessionId}. Elapsed: ${elapsedSeconds}s. Result:`, settleResult);
     }
 
     return NextResponse.json({ success: true, message: "Session ended successfully." });

@@ -57,7 +57,7 @@ export async function POST() {
 
     for (const res of expiredList) {
       try {
-        const settleResult = await settleReservationEscrow(res.id, res.amount_reserved, "expired");
+        const settleResult = await settleReservationEscrow(res.id, 0, "expired");
         if (settleResult.ok) {
           processed++;
         } else {

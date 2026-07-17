@@ -132,6 +132,19 @@ const CloseIcon = ({ className = "w-3 h-3" }: IconProps) => (
     <path d="M18 6 6 18M6 6l12 12" />
   </svg>
 );
+const formatTime = (totalSeconds: number | null): string => {
+  if (totalSeconds === null) return "--:--";
+  const hrs = Math.floor(totalSeconds / 3600);
+  const mins = Math.floor((totalSeconds % 3600) / 60);
+  const secs = totalSeconds % 60;
+
+  const pad = (n: number) => String(n).padStart(2, "0");
+
+  if (hrs > 0) {
+    return `${hrs}:${pad(mins)}:${pad(secs)}`;
+  }
+  return `${pad(mins)}:${pad(secs)}`;
+};
 
 export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: LiveAvatarStreamProps) {
   // ── State ──────────────────────────────────────────────────────────────
@@ -160,6 +173,8 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
   const [showPaymentSuccess, setShowPaymentSuccess] = useState(false);
   const [showPaymentFailed, setShowPaymentFailed] = useState(false);
   const [paymentErrorMessage, setPaymentErrorMessage] = useState("");
+  const [isEnding, setIsEnding] = useState(false);
+  const [countdownSeconds, setCountdownSeconds] = useState<number | null>(null);
 
   // ── Refs ───────────────────────────────────────────────────────────────
   const localVideoRef = useRef<HTMLVideoElement>(null);
@@ -181,6 +196,7 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
   const activeProviderRef = useRef<Provider | null>(null);
   const activeSessionIdRef = useRef<string | null>(null);
   const sessionExpiryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isStartingSessionRef = useRef(false);
 
   // ── Session archival recording (operator-only, not user-facing) ────────
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -662,15 +678,20 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
 
   // ── Main Session Orchestrator (Smart Router entry point) ──────────────
   const startSession = useCallback(async () => {
+    if (isStartingSessionRef.current) {
+      console.warn("[DiipMynd] startSession already in progress, ignoring duplicate call.");
+      return;
+    }
+    isStartingSessionRef.current = true;
+
     if (!user.isAdmin && creditsRef.current <= 0) {
       setError({
         code: "INSUFFICIENT_CREDITS" as any,
         message: "You have 0 credits. Please fund your account to start transformation.",
       });
+      isStartingSessionRef.current = false;
       return;
     }
-
-
 
     setError(null);
     setDiagnosticsStats(null);
@@ -697,7 +718,7 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
             body: JSON.stringify({ sessionId: oldSessionId }),
           });
           // Wait briefly for the DB transaction/release to commit
-          await new Promise((resolve) => setTimeout(resolve, 500));
+          await new Promise((resolve) => setTimeout(resolve, 1000));
         } catch (err) {
           console.warn("[DiipMynd] Failed to end previous session client-side:", err);
         }
@@ -744,6 +765,10 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
       if (startData.reservationExpiresAt && !user.isAdmin) {
         const timeToExpiry = startData.reservationExpiresAt - Date.now();
         console.log(`[DiipMynd] Proactively scheduling session end in ${timeToExpiry}ms based on credit reservation`);
+        
+        const initialSeconds = Math.max(0, Math.floor(timeToExpiry / 1000));
+        setCountdownSeconds(initialSeconds);
+
         if (sessionExpiryTimeoutRef.current) {
           clearTimeout(sessionExpiryTimeoutRef.current);
         }
@@ -797,6 +822,8 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
 
       setError(streamError);
       setConnectionState("error");
+    } finally {
+      isStartingSessionRef.current = false;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initCamera, connectToDecart, connectToFal, providerPreference]);
@@ -924,6 +951,7 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
     clearReconnectTimer();
     disconnectRealtime();
     stopSessionRecording();
+    setCountdownSeconds(null);
 
     if (sessionExpiryTimeoutRef.current) {
       clearTimeout(sessionExpiryTimeoutRef.current);
@@ -933,6 +961,7 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
     const sessionId = activeSessionIdRef.current;
     if (sessionId) {
       activeSessionIdRef.current = null;
+      setIsEnding(true);
       fetch("/api/stream/end", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -941,6 +970,8 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
         onBalanceUpdated();
       }).catch((err) => {
         console.error("[stream-end] Failed to gracefully close stream session:", err);
+      }).finally(() => {
+        setIsEnding(false);
       });
     }
 
@@ -1035,6 +1066,13 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
                 ? "Stream session ended (timeout or out of credits)."
                 : `Stream session ended (server returned status ${res.status}).`,
             });
+          } else {
+            const data = await res.json();
+            if (data.reservationExpiresAt && !user.isAdmin) {
+              const timeToExpiry = new Date(data.reservationExpiresAt).getTime() - Date.now();
+              const secondsLeft = Math.max(0, Math.floor(timeToExpiry / 1000));
+              setCountdownSeconds(secondsLeft);
+            }
           }
         } catch (err) {
           console.error("[keepalive] Failed to send ping:", err);
@@ -1053,7 +1091,32 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
         heartbeatIntervalRef.current = null;
       }
     };
-  }, [connectionState, handleStop]);
+  }, [connectionState, handleStop, user.isAdmin]);
+
+  // ── Local Credit Countdown Ticker Timer ────────────────────────────────
+  useEffect(() => {
+    let timer: ReturnType<typeof setInterval> | null = null;
+
+    if (connectionState === "connected") {
+      timer = setInterval(() => {
+        setCountdownSeconds((prev) => {
+          if (prev === null) return null;
+          if (prev <= 1) {
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    } else {
+      setCountdownSeconds(null);
+    }
+
+    return () => {
+      if (timer) {
+        clearInterval(timer);
+      }
+    };
+  }, [connectionState]);
 
   // ── Retry handler for error states ────────────────────────────────────
   const handleRetry = useCallback(() => {
@@ -1151,7 +1214,7 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
   // ── Determine UI state ────────────────────────────────────────────────
   const isConnected = connectionState === "connected";
   const isLoading = ["requesting-token", "initializing-camera", "connecting", "reconnecting"].includes(connectionState);
-  const showStartButton = connectionState === "idle" || connectionState === "disconnected";
+  const showStartButton = (connectionState === "idle" || connectionState === "disconnected") && !isEnding;
 
   useEffect(() => {
     if (hasLocalStream && localVideoRef.current && localStreamRef.current) {
@@ -1159,7 +1222,7 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
     }
   }, [hasLocalStream]);
 
-  const isSessionActive = isConnected || isLoading;
+  const isSessionActive = isConnected || isLoading || isEnding;
 
   return (
     <div className="relative flex flex-col w-full max-w-6xl mx-auto gap-5">
@@ -1231,6 +1294,12 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
             )}
             {activeProvider === "decart" ? "Decart" : "Fal.ai"}
           </div>
+          {countdownSeconds !== null && !user.isAdmin && (
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wider uppercase bg-white/[0.06] text-amber-400 border border-white/[0.1]">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+              Time Remaining: {formatTime(countdownSeconds)}
+            </div>
+          )}
           {routingReason && (
             <span className="text-[10px] text-neutral-600 font-medium">{routingReason}</span>
           )}
@@ -1279,10 +1348,16 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
             {(connectionState === "idle" || connectionState === "disconnected") && !error && (
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 z-10 bg-black/40 backdrop-blur-sm">
                 <div className="w-16 h-16 rounded-2xl bg-white/[0.04] border border-white/[0.08] flex items-center justify-center shadow-md">
-                  <VideoCamIcon className="w-7 h-7 text-red-300" />
+                  {isEnding ? (
+                    <div className="relative w-7 h-7 flex items-center justify-center">
+                      <div className="absolute inset-0 rounded-full border-2 border-red-500/10 border-t-red-500 animate-spin" />
+                    </div>
+                  ) : (
+                    <VideoCamIcon className="w-7 h-7 text-red-300" />
+                  )}
                 </div>
                 <p className="text-[13px] text-neutral-500 font-medium">
-                  Press Start to begin your transformation
+                  {isEnding ? "Stopping transformation..." : "Press Start to begin your transformation"}
                 </p>
               </div>
             )}

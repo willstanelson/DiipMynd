@@ -31,7 +31,55 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Invalid provider. Must be 'decart' or 'fal'." }, { status: 400 });
     }
 
-    const userCredits = currentUser.credits;
+    let userCredits = currentUser.credits;
+
+    // 1. Proactively clean up and settle any of the calling user's own active/stale sessions first.
+    // This resolves the "low-traffic / solo-user" gap so their credits are refunded before checking balance.
+    if (!currentUser.isAdmin) {
+      const { data: oldSessions, error: activeFetchErr } = await supabaseAdmin
+        .from("stream_sessions")
+        .select("id, started_at, last_keepalive_at")
+        .eq("user_id", currentUser.id)
+        .eq("status", "active");
+
+      if (activeFetchErr) {
+        console.error("[stream-start] Failed to check for active sessions:", activeFetchErr.message);
+      } else if (oldSessions && oldSessions.length > 0) {
+        let profileNeedsUpdate = false;
+        for (const oldSess of oldSessions) {
+          console.warn(`[stream-start] Proactively settling lingering session: ${oldSess.id}`);
+          const startedAt = new Date(oldSess.started_at);
+          const lastKeepalive = new Date(oldSess.last_keepalive_at);
+          const elapsedSeconds = Math.max(0, Math.floor(
+            (lastKeepalive.getTime() - startedAt.getTime()) / 1000
+          ));
+
+          const { error: settleErr } = await supabaseAdmin.rpc("settle_stream_session", {
+            p_session_id: oldSess.id,
+            p_actual_cost: elapsedSeconds,
+            p_outcome: "success"
+          });
+
+          if (settleErr) {
+            console.error(`[stream-start] Failed to settle session RPC ${oldSess.id}:`, settleErr.message);
+          } else {
+            profileNeedsUpdate = true;
+          }
+        }
+
+        if (profileNeedsUpdate) {
+          // Re-fetch the updated credits balance from the database
+          const { data: profile } = await supabaseAdmin
+            .from("profiles")
+            .select("credits")
+            .eq("id", currentUser.id)
+            .maybeSingle();
+          if (profile) {
+            userCredits = profile.credits;
+          }
+        }
+      }
+    }
 
     // Minimum balance check: at least 30 credits (equivalent to 30s stream time)
     if (!currentUser.isAdmin && userCredits < 30) {
@@ -45,7 +93,7 @@ export async function POST(request: Request) {
       ? 0 
       : Math.min(userCredits, HARD_MAX_SESSION_SECONDS);
 
-    // 1. Reserve credits in escrow (if not admin)
+    // 2. Reserve credits in escrow (if not admin)
     let reservationId: string | null = null;
     if (!currentUser.isAdmin) {
       const reservation = await reserveCreditsEscrow(
@@ -66,7 +114,7 @@ export async function POST(request: Request) {
       reservationId = reservation.reservationId || null;
     }
 
-    // 2. Insert stream session row server-side
+    // 3. Insert stream session row server-side
     let insertResult = await supabaseAdmin
       .from("stream_sessions")
       .insert({
@@ -95,24 +143,13 @@ export async function POST(request: Request) {
       if (oldSessions && oldSessions.length > 0) {
         for (const oldSess of oldSessions) {
           console.warn(`[stream-start] Force ending orphan session: ${oldSess.id}`);
-          // Update status to ended
-          await supabaseAdmin
-            .from("stream_sessions")
-            .update({ status: "ended" })
-            .eq("id", oldSess.id);
-
-          // Settle the associated reservation
-          const { data: oldRes } = await supabaseAdmin
-            .from("credit_reservations")
-            .select("id, amount_reserved")
-            .eq("reference_type", "stream")
-            .eq("reference_id", oldSess.id)
-            .eq("status", "reserved")
-            .maybeSingle();
-
-          if (oldRes) {
-            const { settleReservationEscrow } = await import("@/lib/credits");
-            await settleReservationEscrow(oldRes.id, 0, "failure");
+          const { error: settleErr } = await supabaseAdmin.rpc("settle_stream_session", {
+            p_session_id: oldSess.id,
+            p_actual_cost: 0,
+            p_outcome: "failure"
+          });
+          if (settleErr) {
+            console.error(`[stream-start] Failed to settle orphan session RPC:`, settleErr.message);
           }
         }
       }
