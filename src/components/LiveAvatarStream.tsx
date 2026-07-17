@@ -826,9 +826,16 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
         body: JSON.stringify({ provider }),
       });
 
+      // Parse the error body ONCE and reuse it. Never call startRes.json() twice
+      // on the same Response object — a Response body can only be consumed once,
+      // and doing so throws "body stream already read", which masks the real
+      // server error (e.g. "Insufficient credits. Minimum 30 credits required.").
+      let startErrData: { error?: string } | null = null;
+
       if (!startRes.ok) {
-        const errData = await startRes.json().catch(() => ({}));
-        const errMsg = errData.error || "";
+        const errBody = await startRes.json().catch(() => ({}));
+        startErrData = errBody;
+        const errMsg = errBody.error || "";
 
         // If constraint violation / race occurs (or temporary 500 error), retry once
         if (
@@ -847,13 +854,18 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ provider }),
           });
+          // Fresh response — read its body once too.
+          startErrData = startRes.ok ? null : await startRes.json().catch(() => ({}));
         }
       }
 
-      const startData = await startRes.json();
       if (!startRes.ok) {
-        throw new Error(startData.error || "Failed to start session on the server.");
+        throw new Error(
+          (startErrData && startErrData.error) || "Failed to start session on the server."
+        );
       }
+
+      const startData = await startRes.json();
 
       activeSessionIdRef.current = startData.sessionId;
 
