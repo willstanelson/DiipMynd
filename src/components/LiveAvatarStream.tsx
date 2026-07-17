@@ -1384,14 +1384,6 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
               `}
             />
 
-            {/* Absolute Overlay: Time Remaining HUD */}
-            {countdownSeconds !== null && isConnected && !user.isAdmin && (
-              <div className="absolute top-4 right-4 z-20 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold tracking-wide uppercase bg-black/60 backdrop-blur-md text-amber-400 border border-white/10 shadow-lg">
-                <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-                Time Remaining: {formatTime(countdownSeconds)}
-              </div>
-            )}
-
             {/* Loading overlay — page-flip book loader */}
             {isLoading && (
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 z-10 bg-black/50 backdrop-blur-sm">
