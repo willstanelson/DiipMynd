@@ -27,9 +27,9 @@ export interface ProviderConfig {
 
 const DECART_CONFIG: ProviderConfig = {
   provider: "decart",
-  modelName: "lucy-2.1",
-  width: 1088,
-  height: 624,
+  modelName: "lucy-2.5",
+  width: 1280,
+  height: 720,
   fps: 30,
 };
 

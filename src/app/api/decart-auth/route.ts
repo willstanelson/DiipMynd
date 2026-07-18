@@ -53,7 +53,7 @@ export async function POST() {
 
     const token = await client.tokens.create({
       expiresIn: 300, // 5 minutes TTL
-      allowedModels: ["lucy-2.1"],
+      allowedModels: ["lucy-2.5"],
     });
 
     // Defense in depth: never ship the master key to the browser. If the SDK

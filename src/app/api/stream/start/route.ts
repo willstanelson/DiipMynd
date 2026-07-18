@@ -83,14 +83,14 @@ export async function POST(request: Request) {
 
     // Minimum balance check: at least 30 credits (equivalent to 30s stream time)
     if (!currentUser.isAdmin && userCredits < 30) {
-      return NextResponse.json({ 
-        error: "Insufficient credits. Minimum 30 credits required to start streaming." 
+      return NextResponse.json({
+        error: "Insufficient credits. Minimum 30 credits required to start streaming."
       }, { status: 402 });
     }
 
     const sessionId = crypto.randomUUID();
-    const estimatedCost = currentUser.isAdmin 
-      ? 0 
+    const estimatedCost = currentUser.isAdmin
+      ? 0
       : Math.min(userCredits, HARD_MAX_SESSION_SECONDS);
 
     // 2. Reserve credits in escrow (if not admin)
@@ -168,7 +168,7 @@ export async function POST(request: Request) {
         })
         .select()
         .maybeSingle();
-      
+
       insertError = insertResult.error;
     }
 
@@ -182,7 +182,7 @@ export async function POST(request: Request) {
           throw new Error("CRITICAL: stream_sessions table not found or write denied. Simulated escrow fallback is disabled in non-development environments.");
         }
         console.warn("[stream-start] stream_sessions table insert denied or missing. Using simulated local session.");
-        const { addMockStreamSession } = require("@/lib/credits");
+        const { addMockStreamSession } = await import("@/lib/credits");
         addMockStreamSession(currentUser.id);
       } else {
         console.error("[stream-start] Database insert error:", insertError.message);
@@ -199,7 +199,7 @@ export async function POST(request: Request) {
     let decartToken: string | null = null;
     const tokenTtl = currentUser.isAdmin ? 300 : Math.min(300, estimatedCost + 60);
     const tokenExpiresAt = Date.now() + tokenTtl * 1000;
-    const reservationExpiresAt = currentUser.isAdmin 
+    const reservationExpiresAt = currentUser.isAdmin
       ? Date.now() + 86400 * 1000
       : Date.now() + estimatedCost * 1000;
 
@@ -213,7 +213,7 @@ export async function POST(request: Request) {
       const client = createDecartClient({ apiKey });
       const token = await client.tokens.create({
         expiresIn: tokenTtl,
-        allowedModels: ["lucy-2.1"],
+        allowedModels: ["lucy-2.5"],
       });
 
       const returnedKey = token?.apiKey;

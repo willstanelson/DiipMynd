@@ -561,7 +561,7 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
         if (data.reservationExpiresAt && !user.isAdmin) {
           const timeToExpiry = data.reservationExpiresAt - Date.now();
           console.log(`[DiipMynd] Billing rebased. Expiry extended by ${timeToExpiry}ms.`);
-          
+
           // Re-calculate countdown seconds
           const initialSeconds = Math.max(0, Math.floor(timeToExpiry / 1000));
           setCountdownSeconds(initialSeconds);
@@ -596,7 +596,7 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
       intentionalDisconnectRef.current = false;
 
       const client = createDecartClient({ apiKey: decartToken });
-      const model = models.realtime("lucy-2.1");
+      const model = models.realtime("lucy-2.5");
 
       const initialPrompt = referenceImageRef.current
         ? (currentPromptRef.current === DEFAULT_PROMPT ? IMAGE_TRANSFORM_PROMPT : currentPromptRef.current)
@@ -873,7 +873,7 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
       if (startData.reservationExpiresAt && !user.isAdmin) {
         const timeToExpiry = startData.reservationExpiresAt - Date.now();
         console.log(`[DiipMynd] Proactively scheduling session end in ${timeToExpiry}ms based on credit reservation`);
-        
+
         const initialSeconds = Math.max(0, Math.floor(timeToExpiry / 1000));
         setCountdownSeconds(initialSeconds);
 
