@@ -38,7 +38,7 @@ export async function POST(request: Request) {
     if (!currentUser.isAdmin) {
       const { data: oldSessions, error: activeFetchErr } = await supabaseAdmin
         .from("stream_sessions")
-        .select("id, started_at, last_keepalive_at")
+        .select("id, started_at, connected_at")
         .eq("user_id", currentUser.id)
         .eq("status", "active");
 
@@ -48,16 +48,31 @@ export async function POST(request: Request) {
         let profileNeedsUpdate = false;
         for (const oldSess of oldSessions) {
           console.warn(`[stream-start] Proactively settling lingering session: ${oldSess.id}`);
-          const startedAt = new Date(oldSess.started_at);
-          const lastKeepalive = new Date(oldSess.last_keepalive_at);
-          const elapsedSeconds = Math.max(0, Math.floor(
-            (lastKeepalive.getTime() - startedAt.getTime()) / 1000
-          ));
+
+          // Fetch the reservation explicitly (no FK from credit_reservations to
+          // stream_sessions — reference_id is a TEXT column matched by convention)
+          // and clamp actual cost. settle_reservation rejects p_actual_cost >
+          // amount_reserved on the 'success' path, which rolls back the entire
+          // settle_stream_session transaction and leaves the session stuck.
+          // p_outcome must be exactly success/failure/expired — anything else
+          // hits invalid_outcome and re-triggers the same rollback.
+          const { data: reservation } = await supabaseAdmin
+            .from("credit_reservations")
+            .select("amount_reserved")
+            .eq("reference_type", "stream")
+            .eq("reference_id", oldSess.id)
+            .maybeSingle();
+
+          const startTime = oldSess.connected_at ? new Date(oldSess.connected_at) : new Date(oldSess.started_at);
+          const elapsedSeconds = Math.max(0, Math.floor((Date.now() - startTime.getTime()) / 1000));
+
+          const amountReserved = reservation?.amount_reserved ?? elapsedSeconds;
+          const actualCost = Math.min(elapsedSeconds, amountReserved);
 
           const { error: settleErr } = await supabaseAdmin.rpc("settle_stream_session", {
             p_session_id: oldSess.id,
-            p_actual_cost: elapsedSeconds,
-            p_outcome: "success"
+            p_actual_cost: actualCost,
+            p_outcome: "expired"
           });
 
           if (settleErr) {

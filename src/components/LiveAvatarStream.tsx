@@ -197,6 +197,10 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
   const activeSessionIdRef = useRef<string | null>(null);
   const sessionExpiryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isStartingSessionRef = useRef(false);
+  // Mirror of connectionState for reading inside callbacks that would otherwise
+  // close over a stale snapshot. Read via this ref in async handlers (e.g. the
+  // SDK onConnectionChange callback) rather than the state value directly.
+  const connectionStateRef = useRef<ConnectionState>("idle");
 
   // ── Session archival recording (operator-only, not user-facing) ────────
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -215,6 +219,10 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
   useEffect(() => {
     activeProviderRef.current = activeProvider;
   }, [activeProvider]);
+
+  useEffect(() => {
+    connectionStateRef.current = connectionState;
+  }, [connectionState]);
 
 
 
@@ -610,43 +618,61 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
         initialState.image = referenceImageRef.current;
       }
 
-      const realtimeClient = await client.realtime.connect(stream, {
-        model,
-        onRemoteStream: (transformedStream: MediaStream) => {
-          console.log("[DiipMynd] Decart remote stream received");
-          if (remoteVideoRef.current) {
-            remoteVideoRef.current.srcObject = transformedStream;
-          }
-          beginSessionRecording(transformedStream);
-        },
-        initialState,
-      });
+      try {
+        const realtimeClient = await client.realtime.connect(stream, {
+          model,
+          initialState,
+          // Passed directly into connect() options: fires live/synchronously,
+          // even during internal SDK retries that ultimately fail — unlike
+          // .on(), which only receives events buffered-and-flushed on eventual
+          // success.
+          onConnectionChange: (state: string) => {
+            if (!isMountedRef.current) return;
+            console.log("[DiipMynd SDK live state]:", state);
 
-      realtimeClientRef.current = realtimeClient;
-
-      realtimeClient.on("connectionChange", (state: string) => {
-        if (!isMountedRef.current) return;
-        console.log("[DiipMynd] Decart connection state:", state);
-        switch (state) {
-          case "connected":
-          case "generating":
-            handleConnectionConnected();
-            break;
-          case "connecting":
-            setConnectionState("connecting");
-            break;
-          case "reconnecting":
-            setConnectionState("reconnecting");
-            break;
-          case "disconnected":
-            if (!intentionalDisconnectRef.current) {
-              scheduleReconnect(startSessionFn);
+            switch (state) {
+              case "connected":
+              case "generating":
+                handleConnectionConnected();
+                break;
+              case "connecting":
+                setConnectionState("connecting");
+                break;
+              case "reconnecting":
+                setConnectionState("reconnecting");
+                break;
+              case "disconnected":
+              case "failed":
+                // Read via ref, not the closed-over `connectionState` value, to
+                // avoid acting on a stale snapshot from when this callback was
+                // created.
+                if (!intentionalDisconnectRef.current && connectionStateRef.current === "connected") {
+                  scheduleReconnect(startSessionFn);
+                }
+                break;
             }
-            break;
-        }
-      });
+          },
+          onRemoteStream: (transformedStream: MediaStream) => {
+            console.log("[DiipMynd] Decart remote stream received");
+            if (remoteVideoRef.current) {
+              remoteVideoRef.current.srcObject = transformedStream;
+            }
+            beginSessionRecording(transformedStream);
+          },
+        });
 
-      handleConnectionConnected();
+        realtimeClientRef.current = realtimeClient;
+      } catch (err) {
+        // The SDK has already exhausted its own internal retries by the time
+        // this rejects — do NOT call scheduleReconnect here, that would stack a
+        // second app-level retry loop on top of one that just finished.
+        console.error("[DiipMynd] Decart connection failed after internal SDK retries:", err);
+        if (realtimeClientRef.current) {
+          try { realtimeClientRef.current.disconnect(); } catch { /* best effort */ }
+          realtimeClientRef.current = null;
+        }
+        throw err;
+      }
     },
     [scheduleReconnect, beginSessionRecording, handleConnectionConnected]
   );
@@ -914,6 +940,16 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
         await connectToFal(stream, startSession);
       }
     } catch (err: unknown) {
+      // If connectToDecart succeeded but something later in startSession threw
+      // (or vice versa), the Decart client could be left connected. Disconnect
+      // it best-effort so we never leak a live realtime session on a failed
+      // start. Separate from the inner catch in connectToDecart (Bug #3): that
+      // guards errors thrown *during* connect(); this guards everything else.
+      if (realtimeClientRef.current) {
+        try { realtimeClientRef.current.disconnect(); } catch { /* best effort */ }
+        realtimeClientRef.current = null;
+      }
+
       if (!isMountedRef.current || intentionalDisconnectRef.current) return;
 
       const streamError: StreamError = {

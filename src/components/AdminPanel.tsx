@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { SafeUser } from "@/lib/auth";
 
 interface AdminPanelProps {
@@ -26,6 +26,13 @@ const getExplorerLink = (method: string | undefined, txHash: string | undefined)
   }
 };
 
+// Format a number of seconds as a short relative label (e.g. "5s", "2m", "1h").
+const formatRelativeSeconds = (seconds: number): string => {
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+  return `${Math.floor(seconds / 3600)}h`;
+};
+
 interface CreditRequest {
   id: string;
   userId: string;
@@ -36,6 +43,23 @@ interface CreditRequest {
   createdAt: string;
   paymentMethod?: string;
   txHash?: string;
+}
+
+interface ActiveSession {
+  id: string;
+  userId: string;
+  email: string;
+  isAdmin: boolean;
+  provider: string;
+  startedAt: string;
+  connectedAt: string | null;
+  lastKeepaliveAt: string;
+  elapsedSeconds: number;
+  amountReserved: number | null;
+  reservationExpiresAt: string | null;
+  secondsUntilExpiry: number | null;
+  isOverdue: boolean;
+  secondsSinceKeepalive: number;
 }
 
 interface BundleConversion {
@@ -115,9 +139,10 @@ const getConversionInfo = (amount: number, packageId?: string) => {
 };
 
 export default function AdminPanel({ onClose, onBalanceUpdated, currentUserId }: AdminPanelProps) {
-  const [activeTab, setActiveTab] = useState<"users" | "requests">("users");
+  const [activeTab, setActiveTab] = useState<"users" | "requests" | "sessions">("users");
   const [users, setUsers] = useState<SafeUser[]>([]);
   const [requests, setRequests] = useState<CreditRequest[]>([]);
+  const [sessions, setSessions] = useState<ActiveSession[]>([]);
   
   const [loading, setLoading] = useState(true);
   const [loadingRequests, setLoadingRequests] = useState(false);
@@ -129,6 +154,47 @@ export default function AdminPanel({ onClose, onBalanceUpdated, currentUserId }:
   const [fundAmount, setFundAmount] = useState<number>(100);
   const [funding, setFunding] = useState(false);
   const [fundSuccess, setFundSuccess] = useState(false);
+
+  // Sessions-monitor states
+  const [loadingSessions, setLoadingSessions] = useState(false);
+  const [endingSessionId, setEndingSessionId] = useState<string | null>(null);
+  const [confirmForceKillId, setConfirmForceKillId] = useState<string | null>(null);
+  const sessionsPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Fetch active stream sessions (polled while the Sessions tab is active).
+  const fetchSessions = useCallback(async () => {
+    try {
+      setLoadingSessions(true);
+      const res = await fetch("/api/admin/sessions");
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to load sessions.");
+      }
+      setSessions(data.sessions || []);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to load sessions";
+      setError(message);
+    } finally {
+      setLoadingSessions(false);
+    }
+  }, []);
+
+  // Poll the sessions view at the same 5s cadence the app's own keepalive uses,
+  // but only while the Sessions tab is actually visible. Cleared on tab-switch
+  // and on unmount (deliberate: no Supabase Realtime subscription for v1).
+  useEffect(() => {
+    if (activeTab !== "sessions") return;
+    fetchSessions();
+    sessionsPollRef.current = setInterval(() => {
+      fetchSessions();
+    }, 5000);
+    return () => {
+      if (sessionsPollRef.current) {
+        clearInterval(sessionsPollRef.current);
+        sessionsPollRef.current = null;
+      }
+    };
+  }, [activeTab, fetchSessions]);
 
   // Fetch users list
   const fetchUsers = async () => {
@@ -267,6 +333,35 @@ export default function AdminPanel({ onClose, onBalanceUpdated, currentUserId }:
     }
   };
 
+  // End a session manually (admin). mode = "graceful" bills for actual usage;
+  // "force" fully refunds. Force Kill requires a confirm step before firing.
+  const handleEndSession = async (sessionId: string, mode: "graceful" | "force") => {
+    setError(null);
+    setFundSuccess(false);
+    setEndingSessionId(sessionId);
+    try {
+      const res = await fetch("/api/admin/sessions/end", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId, mode }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to end session.");
+      }
+      // Remove the ended session from the local list immediately — the next
+      // poll will reconcile if the server disagrees.
+      setSessions((prev) => prev.filter((s) => s.id !== sessionId));
+      setFundSuccess(true);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to end session";
+      setError(message);
+    } finally {
+      setEndingSessionId(null);
+      setConfirmForceKillId(null);
+    }
+  };
+
   // Filter users by search term
   const filteredUsers = users.filter((u) =>
     u.email.toLowerCase().includes(searchTerm.toLowerCase())
@@ -318,6 +413,21 @@ export default function AdminPanel({ onClose, onBalanceUpdated, currentUserId }:
               {pendingRequestsCount > 0 && (
                 <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-rose-500 text-white">
                   {pendingRequestsCount}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={() => setActiveTab("sessions")}
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold cursor-pointer transition-all flex items-center gap-2 ${
+                activeTab === "sessions"
+                  ? "bg-indigo-600 text-white shadow-sm"
+                  : "bg-slate-50 dark:bg-slate-950 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-150 dark:border-slate-800"
+              }`}
+            >
+              Live Sessions
+              {sessions.length > 0 && (
+                <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500 text-white">
+                  {sessions.length}
                 </span>
               )}
             </button>
@@ -470,6 +580,137 @@ export default function AdminPanel({ onClose, onBalanceUpdated, currentUserId }:
                               >
                                 Approve
                               </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Tab: Live Sessions */}
+          {activeTab === "sessions" && (
+            <div className="flex-1 flex flex-col overflow-hidden">
+              <div className="flex-1 overflow-y-auto pr-1">
+                {loadingSessions && sessions.length === 0 ? (
+                  <div className="h-full flex items-center justify-center text-xs text-slate-400">
+                    <div className="w-5 h-5 rounded-full border-2 border-indigo-600/20 border-t-indigo-600 animate-spin mr-2" />
+                    Loading active sessions...
+                  </div>
+                ) : sessions.length === 0 ? (
+                  <div className="h-full flex items-center justify-center text-xs text-slate-400">
+                    No active stream sessions.
+                  </div>
+                ) : (
+                  <table className="w-full text-left text-xs text-slate-700 dark:text-slate-300">
+                    <thead>
+                      <tr className="border-b border-slate-100 dark:border-slate-800 text-slate-400 dark:text-slate-500 uppercase text-[9px] tracking-widest">
+                        <th className="py-2.5">User</th>
+                        <th className="py-2.5">Provider</th>
+                        <th className="py-2.5 text-right">Elapsed / Reserved</th>
+                        <th className="py-2.5">Connected</th>
+                        <th className="py-2.5">Last Keepalive</th>
+                        <th className="py-2.5 text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                      {sessions.map((s) => {
+                        const overdueClass = s.isOverdue
+                          ? "text-rose-600 dark:text-rose-400 font-bold"
+                          : "text-slate-700 dark:text-slate-300";
+                        const staleKeepalive = s.secondsSinceKeepalive > 90;
+                        return (
+                          <tr
+                            key={s.id}
+                            className={`hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors ${
+                              s.isOverdue ? "bg-rose-50/40 dark:bg-rose-950/10" : ""
+                            }`}
+                          >
+                            <td className="py-3 pr-2 truncate max-w-[130px]" title={s.email}>
+                              <div className="flex items-center gap-1.5">
+                                {s.isOverdue && (
+                                  <span className="text-[8px] tracking-wider bg-rose-100 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-900/50 text-rose-700 dark:text-rose-300 px-1 py-0.5 rounded font-bold uppercase shrink-0 animate-pulse">
+                                    OVERDUE
+                                  </span>
+                                )}
+                                <span className="truncate">{s.email}</span>
+                              </div>
+                            </td>
+                            <td className="py-3 text-[10px] font-semibold text-slate-600 dark:text-slate-400">
+                              {s.provider}
+                              {s.isAdmin && (
+                                <span className="ml-1 text-indigo-700 dark:text-indigo-300 bg-indigo-100 dark:bg-indigo-950/50 px-1 py-0.5 rounded font-bold text-[8px]">
+                                  ADMIN
+                                </span>
+                              )}
+                            </td>
+                            <td className={`py-3 text-right tabular-nums ${overdueClass}`}>
+                              {s.elapsedSeconds}s
+                              {s.amountReserved !== null && (
+                                <span className="text-slate-400 dark:text-slate-500 font-normal">
+                                  {" "}/ {s.amountReserved}s
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-3 text-[10px] text-slate-500 dark:text-slate-400">
+                              {s.connectedAt
+                                ? new Date(s.connectedAt).toLocaleTimeString()
+                                : new Date(s.startedAt).toLocaleTimeString()}
+                            </td>
+                            <td className={`py-3 text-[10px] ${staleKeepalive ? "text-amber-600 dark:text-amber-400 font-bold" : "text-slate-500 dark:text-slate-400"}`}>
+                              {formatRelativeSeconds(s.secondsSinceKeepalive)} ago
+                            </td>
+                            <td className="py-2 text-right whitespace-nowrap">
+                              {confirmForceKillId === s.id ? (
+                                <div className="flex items-center justify-end gap-1">
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleEndSession(s.id, "force");
+                                    }}
+                                    disabled={endingSessionId === s.id}
+                                    className="px-2 py-1 text-[9px] bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-lg cursor-pointer transition-colors active:scale-95 disabled:opacity-50"
+                                  >
+                                    {endingSessionId === s.id ? "..." : "Confirm Kill"}
+                                  </button>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setConfirmForceKillId(null);
+                                    }}
+                                    disabled={endingSessionId === s.id}
+                                    className="px-2 py-1 text-[9px] bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold rounded-lg cursor-pointer transition-colors active:scale-95"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="flex items-center justify-end gap-1">
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleEndSession(s.id, "graceful");
+                                    }}
+                                    disabled={endingSessionId === s.id}
+                                    className="px-2 py-1 text-[9px] bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg cursor-pointer transition-colors active:scale-95 disabled:opacity-50"
+                                  >
+                                    {endingSessionId === s.id ? "..." : "End"}
+                                  </button>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setConfirmForceKillId(s.id);
+                                    }}
+                                    disabled={endingSessionId === s.id}
+                                    className="px-2 py-1 text-[9px] bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-lg cursor-pointer transition-colors active:scale-95 disabled:opacity-50"
+                                  >
+                                    Force Kill
+                                  </button>
+                                </div>
+                              )}
                             </td>
                           </tr>
                         );

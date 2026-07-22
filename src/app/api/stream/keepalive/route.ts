@@ -165,11 +165,28 @@ async function sweepStaleSessions() {
         continue;
       }
 
+      // Fetch the reservation explicitly (no FK from credit_reservations to
+      // stream_sessions — reference_id is a TEXT column matched by convention)
+      // and clamp actual cost. settle_reservation rejects p_actual_cost >
+      // amount_reserved, which rolls back settle_stream_session and leaves the
+      // session stuck "active". p_outcome must be exactly one of
+      // success/failure/expired — anything else hits invalid_outcome and
+      // re-triggers the same rollback.
+      const { data: reservation } = await supabaseAdmin
+        .from("credit_reservations")
+        .select("amount_reserved")
+        .eq("reference_type", "stream")
+        .eq("reference_id", session.id)
+        .maybeSingle();
+
+      const amountReserved = reservation?.amount_reserved ?? elapsedSeconds;
+      const actualCost = Math.min(elapsedSeconds, amountReserved);
+
       // Non-admins: call the atomic RPC to settle session and reservation together!
       const { data: settleResult, error: settleErr } = await supabaseAdmin.rpc("settle_stream_session", {
         p_session_id: session.id,
-        p_actual_cost: elapsedSeconds,
-        p_outcome: "success"
+        p_actual_cost: actualCost,
+        p_outcome: "expired"
       });
 
       if (settleErr) {

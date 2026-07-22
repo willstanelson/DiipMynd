@@ -97,9 +97,27 @@ export async function POST(request: Request) {
       }
       console.log(`[stream-end] Ended admin session ${sessionId}`);
     } else {
+      // Fetch the reservation explicitly — credit_reservations has no FK to
+      // stream_sessions (reference_id is a plain TEXT column matched by convention),
+      // so this must be a separate query, not a nested-select embed.
+      const { data: reservation } = await supabaseAdmin
+        .from("credit_reservations")
+        .select("amount_reserved")
+        .eq("reference_type", "stream")
+        .eq("reference_id", sessionId)
+        .maybeSingle();
+
+      // Clamp actual cost to the reserved amount. settle_reservation rejects
+      // (invalid_actual_cost) when p_actual_cost > amount_reserved, which rolls
+      // back the entire settle_stream_session transaction and leaves the session
+      // stuck "active". This clamp guarantees the contract holds even when a
+      // session runs past its reservation window.
+      const amountReserved = reservation?.amount_reserved ?? elapsedSeconds;
+      const actualCost = Math.min(elapsedSeconds, amountReserved);
+
       const { data: settleResult, error: settleErr } = await supabaseAdmin.rpc("settle_stream_session", {
         p_session_id: sessionId,
-        p_actual_cost: elapsedSeconds,
+        p_actual_cost: actualCost,
         p_outcome: "success"
       });
 
@@ -108,7 +126,7 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "Failed to settle reservation hold." }, { status: 500 });
       }
 
-      console.log(`[stream-end] Atomic settled session ${sessionId}. Elapsed: ${elapsedSeconds}s. Result:`, settleResult);
+      console.log(`[stream-end] Atomic settled session ${sessionId}. Elapsed: ${elapsedSeconds}s, billed: ${actualCost}s. Result:`, settleResult);
     }
 
     return NextResponse.json({ success: true, message: "Session ended successfully." });

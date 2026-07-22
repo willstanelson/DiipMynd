@@ -426,50 +426,108 @@ async function settleReservationEscrowFallback(
   actualCost: number,
   outcome: 'success' | 'failure' | 'expired'
 ): Promise<EscrowSettlementResult> {
-  const res = mockReservations.get(reservationId);
-  if (!res) {
-    // If not found in memory, we assume a graceful success return
+  // ── In-memory mock reservations (dev-only, created by reserveCreditsEscrowFallback) ──
+  // These IDs are `mock-<uuid>` and only exist in memory — they were never
+  // written to credit_reservations, so the DB path below can't find them.
+  // Keep this path working but apply the same clamp fix + credit_ledger audit
+  // entry as the DB path so both produce identical audit data.
+  if (reservationId.startsWith("mock-")) {
+    const res = mockReservations.get(reservationId);
+    if (!res) {
+      return { ok: false, code: "reservation_not_found" };
+    }
+    if (res.status !== 'reserved') {
+      return { ok: true, code: "already_settled", status: res.status };
+    }
+
+    // Clamp the refund so it can never go negative (the root cause of Bug #7:
+    // an unclamped `amount - actualCost` left the overage unreconciled).
+    const refunded = outcome === 'success'
+      ? Math.max(0, res.amount - actualCost)
+      : res.amount;
+
+    const newStatus = outcome === 'success' ? 'committed'
+      : outcome === 'expired' ? 'expired'
+      : 'released';
+    res.status = newStatus;
+
+    if (refunded > 0) {
+      // Reuse the real adjust_credits RPC (p_user_id, p_delta) rather than a
+      // raw update, so this path shares the same atomicity as the rest of the app.
+      await supabaseAdmin.rpc("adjust_credits", {
+        p_user_id: res.userId,
+        p_delta: refunded,
+      });
+
+      await supabaseAdmin.from("credit_ledger").insert({
+        user_id: res.userId,
+        delta: refunded,
+        reason: `${outcome === "success" ? "Refund" : "Release"}: ${res.referenceType} (${res.referenceId})`,
+        source: "escrow-settle-fallback",
+      });
+    }
+
+    return {
+      ok: true,
+      code: newStatus === 'committed' ? 'committed' : 'released',
+      refunded,
+      status: newStatus,
+    };
+  }
+
+  // ── Real DB reservations (settled here only when the settle_reservation RPC
+  // itself is unavailable). Mirrors settle_reservation's actual behavior so
+  // both code paths produce identical audit data.
+  const { data: reservation, error: fetchErr } = await supabaseAdmin
+    .from("credit_reservations")
+    .select("*")
+    .eq("id", reservationId)
+    .single();
+
+  if (fetchErr || !reservation) {
     return { ok: false, code: "reservation_not_found" };
   }
 
-  if (res.status !== 'reserved') {
-    return { ok: true, code: "already_settled", status: res.status };
+  if (reservation.status !== "reserved") {
+    return { ok: true, code: "already_settled", status: reservation.status };
   }
 
-  // 1. Load user profile
-  const { data: profile, error } = await supabaseAdmin
-    .from("profiles")
-    .select("credits")
-    .eq("id", res.userId)
-    .single();
+  const refunded = outcome === "success"
+    ? Math.max(0, reservation.amount_reserved - actualCost)
+    : reservation.amount_reserved;
 
-  if (error || !profile) {
-    return { ok: false, code: "user_not_found" };
-  }
+  const newStatus = outcome === "success" ? "committed"
+    : outcome === "expired" ? "expired"
+    : "released";
 
-  let refunded = 0;
-  if (outcome === 'success') {
-    refunded = res.amount - actualCost;
-    res.status = 'committed';
-  } else {
-    refunded = res.amount;
-    res.status = outcome === 'expired' ? 'expired' : 'released';
-  }
+  const { error: updateErr } = await supabaseAdmin
+    .from("credit_reservations")
+    .update({
+      status: newStatus,
+      amount_committed: outcome === "success" ? actualCost : null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", reservationId);
+
+  if (updateErr) throw updateErr;
 
   if (refunded > 0) {
-    const newBalance = profile.credits + refunded;
-    await supabaseAdmin
-      .from("profiles")
-      .update({ credits: newBalance })
-      .eq("id", res.userId);
+    // Reuse the real adjust_credits RPC (p_user_id, p_delta) rather than a raw
+    // update, so this path shares the same atomicity as the rest of the app.
+    await supabaseAdmin.rpc("adjust_credits", {
+      p_user_id: reservation.user_id,
+      p_delta: refunded,
+    });
+
+    await supabaseAdmin.from("credit_ledger").insert({
+      user_id: reservation.user_id,
+      delta: refunded,
+      reason: `${outcome === "success" ? "Refund" : "Release"}: ${reservation.reference_type} (${reservation.reference_id})`,
+      source: "escrow-settle-fallback",
+    });
   }
 
-  return {
-    ok: true,
-    code: res.status === 'committed' ? 'committed' : 'released',
-    refunded,
-    status: res.status
-  };
+  return { ok: true, code: newStatus, refunded, status: newStatus };
 }
 
 /**
