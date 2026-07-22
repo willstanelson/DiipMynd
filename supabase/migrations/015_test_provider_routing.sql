@@ -183,6 +183,8 @@ CREATE TABLE IF NOT EXISTS public.app_settings (
 );
 
 ALTER TABLE public.app_settings ENABLE ROW LEVEL SECURITY;
+GRANT ALL ON TABLE public.app_settings TO service_role;
+GRANT ALL ON TABLE public.app_settings TO postgres;
 -- No policies granted to anon/authenticated on purpose — this table only
 -- ever touches the server via supabaseAdmin (service_role bypasses RLS).
 -- Mirrors the pattern used for profiles' column-level writes elsewhere.
