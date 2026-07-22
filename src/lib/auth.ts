@@ -10,6 +10,7 @@ export interface SafeUser {
   termsAcceptedAt?: string | null;
   kycStatus?: "none" | "skipped" | "pending" | "verified";
   kycCreditsAwarded?: boolean;
+  hasFundedCredits?: boolean;
 }
 
 export async function getCurrentUser(): Promise<SafeUser | null> {
@@ -25,9 +26,9 @@ export async function getCurrentUser(): Promise<SafeUser | null> {
     }
 
     // Try reading user profile
-    let { data: profile, error: profileError } = await supabaseAdmin
+    const { data: initialProfile, error: profileError } = await supabaseAdmin
       .from("profiles")
-      .select("credits, is_admin, created_at, terms_accepted_at, kyc_status, kyc_credits_awarded")
+      .select("credits, is_admin, created_at, terms_accepted_at, kyc_status, kyc_credits_awarded, has_funded_credits")
       .eq("id", user.id)
       .maybeSingle();
 
@@ -35,6 +36,8 @@ export async function getCurrentUser(): Promise<SafeUser | null> {
       console.error("[auth] Failed to read profile:", profileError);
       return null;
     }
+
+    let profile = initialProfile;
 
     // Failsafe fallback: create profile if missing (upsert with ignoreDuplicates to handle race conditions safely)
     if (!profile) {
@@ -53,7 +56,7 @@ export async function getCurrentUser(): Promise<SafeUser | null> {
       // Fetch the profile to return (guarantees we get the row whether trigger or fallback inserted it)
       const { data: newProfile, error: fetchError } = await supabaseAdmin
         .from("profiles")
-        .select("credits, is_admin, created_at, terms_accepted_at, kyc_status, kyc_credits_awarded")
+        .select("credits, is_admin, created_at, terms_accepted_at, kyc_status, kyc_credits_awarded, has_funded_credits")
         .eq("id", user.id)
         .single();
 
@@ -73,6 +76,7 @@ export async function getCurrentUser(): Promise<SafeUser | null> {
       termsAcceptedAt: profile.terms_accepted_at,
       kycStatus: profile.kyc_status as any,
       kycCreditsAwarded: profile.kyc_credits_awarded,
+      hasFundedCredits: profile.has_funded_credits,
     };
   } catch (err) {
     console.error("[auth] Failed to retrieve current user:", err);

@@ -11,6 +11,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { reserveCreditsEscrow } from "@/lib/credits";
+import { getAppSetting } from "@/lib/appSettings";
 import { createDecartClient } from "@decartai/sdk";
 import { apiError } from "@/lib/api";
 import crypto from "crypto";
@@ -103,6 +104,12 @@ export async function POST(request: Request) {
       }, { status: 402 });
     }
 
+    // A user is either "still on the free KYC trial" (never topped up) or a
+    // funded user — a single one-way flag, not a per-credit-unit distinction,
+    // since paid and bonus credits become indistinguishable once they land
+    // in the same fungible `credits` balance. Admins are always production.
+    const isTestSession = !currentUser.isAdmin && !currentUser.hasFundedCredits;
+
     const sessionId = crypto.randomUUID();
     const estimatedCost = currentUser.isAdmin
       ? 0
@@ -140,6 +147,7 @@ export async function POST(request: Request) {
         started_at: new Date().toISOString(),
         last_billed_at: new Date().toISOString(),
         last_keepalive_at: new Date().toISOString(),
+        is_test_session: isTestSession,
       })
       .select()
       .maybeSingle();
@@ -180,6 +188,7 @@ export async function POST(request: Request) {
           started_at: new Date().toISOString(),
           last_billed_at: new Date().toISOString(),
           last_keepalive_at: new Date().toISOString(),
+          is_test_session: isTestSession,
         })
         .select()
         .maybeSingle();
@@ -219,9 +228,26 @@ export async function POST(request: Request) {
       : Date.now() + estimatedCost * 1000;
 
     if (provider === "decart") {
-      const apiKey = process.env.DECART_API_KEY;
+      // Trial users are routed to a separate Decart account/key. That
+      // second account is left at Decart's default — realtime output is
+      // watermarked unless watermark removal is explicitly requested per
+      // platform.decart.ai/watermark — so trial sessions are visibly
+      // marked as such with zero extra work on our side. Rotating to a
+      // fresh Decart account (once the current one's signup credits run
+      // out) is just a POST to /api/admin/settings; no Vercel redeploy.
+      const apiKey = isTestSession
+        ? await getAppSetting("decart_api_key_test")
+        : process.env.DECART_API_KEY;
+
       if (!apiKey) {
-        console.error("[stream-start] DECART_API_KEY is not configured.");
+        console.error(
+          isTestSession
+            ? "[stream-start] Test session requested but decart_api_key_test is not configured."
+            : "[stream-start] DECART_API_KEY is not configured."
+        );
+        // Fail closed rather than silently falling back to the production
+        // key for a trial user — that would defeat the entire point of
+        // this routing and quietly bill the real account for test traffic.
         return NextResponse.json({ error: "Decart integration is misconfigured." }, { status: 500 });
       }
 
@@ -246,6 +272,7 @@ export async function POST(request: Request) {
       tokenExpiresAt,
       reservationExpiresAt,
       reservationId,
+      isTestSession,
     });
   } catch (err) {
     return apiError(err, "Failed to start stream session.", 500);

@@ -39,7 +39,7 @@ export async function GET(request: Request) {
     // One bounded page of profiles.
     const { data: profiles, error } = await supabaseAdmin
       .from("profiles")
-      .select("id, email, credits, is_admin, created_at")
+      .select("id, email, credits, is_admin, created_at, has_funded_credits")
       .order("created_at", { ascending: false })
       .range(from, to);
 
@@ -72,6 +72,7 @@ export async function GET(request: Request) {
       isAdmin: p.is_admin,
       createdAt: p.created_at,
       isSuspended: suspensionMap.get(p.id) || false,
+      hasFundedCredits: !!p.has_funded_credits,
     }));
 
     return NextResponse.json({ success: true, users: safeUsers, page });
@@ -82,7 +83,7 @@ export async function GET(request: Request) {
 
 /**
  * POST /api/admin/users
- * Body: { userId, amount?, isSuspended?, reason? }
+ * Body: { userId, amount?, isSuspended?, reason?, markAsFunded? }
  */
 export async function POST(request: Request) {
   try {
@@ -92,7 +93,7 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json().catch(() => ({}));
-    const { userId, amount, isSuspended, reason } = body;
+    const { userId, amount, isSuspended, reason, markAsFunded } = body;
 
     if (!userId || typeof userId !== "string") {
       return NextResponse.json({ error: "userId is required." }, { status: 400 });
@@ -119,12 +120,23 @@ export async function POST(request: Request) {
 
     const { data: profile, error: selectError } = await supabaseAdmin
       .from("profiles")
-      .select("credits, is_admin, email, created_at")
+      .select("credits, is_admin, email, created_at, has_funded_credits")
       .eq("id", userId)
       .single();
 
     if (selectError || !profile) {
       return NextResponse.json({ error: "User profile not found." }, { status: 404 });
+    }
+
+    // One-way promotion to funded status (never demotes)
+    if (markAsFunded === true) {
+      const { error: fundErr } = await supabaseAdmin
+        .from("profiles")
+        .update({ has_funded_credits: true })
+        .eq("id", userId);
+      if (fundErr) {
+        console.error("[admin-users] Failed to mark user as funded:", fundErr.message);
+      }
     }
 
     let finalCredits = profile.credits;
@@ -178,6 +190,7 @@ export async function POST(request: Request) {
       isAdmin: profile.is_admin,
       createdAt: profile.created_at,
       isSuspended: updatedSuspended,
+      hasFundedCredits: markAsFunded === true ? true : !!profile.has_funded_credits,
     };
 
     return NextResponse.json({ success: true, user: safeUser });

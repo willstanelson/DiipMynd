@@ -27,6 +27,7 @@ interface ActiveSessionRow {
   started_at: string;
   connected_at: string | null;
   last_keepalive_at: string;
+  is_test_session?: boolean;
 }
 
 interface ReservationRow {
@@ -45,7 +46,7 @@ export async function GET() {
     // 1. Fetch all active sessions.
     const { data: sessions, error } = await supabaseAdmin
       .from("stream_sessions")
-      .select("id, user_id, provider, started_at, connected_at, last_keepalive_at")
+      .select("id, user_id, provider, started_at, connected_at, last_keepalive_at, is_test_session")
       .eq("status", "active")
       .limit(MAX_SESSIONS);
 
@@ -133,6 +134,7 @@ export async function GET() {
         secondsUntilExpiry,
         isOverdue,
         secondsSinceKeepalive,
+        isTestSession: !!s.is_test_session,
       };
     });
 
