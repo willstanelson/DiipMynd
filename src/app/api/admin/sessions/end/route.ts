@@ -28,6 +28,7 @@ interface SessionRow {
   user_id: string;
   started_at: string;
   connected_at: string | null;
+  last_known_generation_seconds: number | null;
   status: string;
 }
 
@@ -56,7 +57,7 @@ export async function POST(request: Request) {
     // 1. Fetch the session.
     const { data: session, error: fetchErr } = await supabaseAdmin
       .from("stream_sessions")
-      .select("id, user_id, started_at, connected_at, status")
+      .select("id, user_id, started_at, connected_at, last_known_generation_seconds, status")
       .eq("id", sessionId)
       .maybeSingle();
 
@@ -112,7 +113,11 @@ export async function POST(request: Request) {
         const startTime = typedSession.connected_at
           ? new Date(typedSession.connected_at)
           : new Date(typedSession.started_at);
-        const elapsedSeconds = Math.max(0, Math.floor((now.getTime() - startTime.getTime()) / 1000));
+        const wallClockSeconds = Math.max(0, Math.floor((now.getTime() - startTime.getTime()) / 1000));
+        // 3.3: prefer Decart's authoritative cumulative seconds (persisted via
+        // keepalive) over the wall-clock estimate when available. The clamp
+        // stays as the final safety net regardless.
+        const elapsedSeconds = typedSession.last_known_generation_seconds ?? wallClockSeconds;
 
         const amountReserved = (reservation as ReservationRow | null)?.amount_reserved ?? elapsedSeconds;
         actualCost = Math.min(elapsedSeconds, amountReserved);

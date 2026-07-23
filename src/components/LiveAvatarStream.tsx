@@ -20,6 +20,7 @@ import {
   createDecartClient,
   models,
   type RealTimeClient,
+  type DecartSDKError,
 } from "@decartai/sdk";
 import { fal } from "@fal-ai/client";
 import type {
@@ -201,6 +202,28 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
   // close over a stale snapshot. Read via this ref in async handlers (e.g. the
   // SDK onConnectionChange callback) rather than the state value directly.
   const connectionStateRef = useRef<ConnectionState>("idle");
+
+  // ── Generation-truth billing (Part 3.2/3.3/3.4) ───────────────────────
+  // Authoritative cumulative seconds Decart itself reports via generationTick.
+  // This is what actually drives billing on Decart's side — treat it as ground
+  // truth, not the wall-clock estimate. The ref is read inside async handlers
+  // (the generationTick callback, keepalive body, settlement); the state mirror
+  // drives the HUD timer during render.
+  const lastKnownGenerationSecondsRef = useRef<number | null>(null);
+  const [displaySecondsUsed, setDisplaySecondsUsed] = useState<number>(0);
+
+  // The amount reserved for the active session (in seconds), learned from the
+  // keepalive response. Used to stop the instant the authoritative count reaches
+  // what was paid for (belt-and-suspenders with the server-side maxSessionDuration
+  // cap and the reservation-expiry setTimeout). State mirror drives the HUD.
+  const currentReservationRef = useRef<number | null>(null);
+  const [currentReservationAmount, setCurrentReservationAmount] = useState<number | null>(null);
+
+  // 3.4: set by the SDK error handler when Decart reports a provider-side credit
+  // exhaustion / outage. Read in the onConnectionChange "disconnected" branch to
+  // skip scheduleReconnect — retrying into a dead Decart account fails again on a
+  // loop, for every affected user simultaneously.
+  const accountLevelOutageRef = useRef(false);
 
   // ── Session archival recording (operator-only, not user-facing) ────────
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -504,6 +527,13 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
     stopSessionRecording();
     setCountdownSeconds(null);
 
+    // Reset generation-truth + outage state so the next session starts clean.
+    lastKnownGenerationSecondsRef.current = null;
+    currentReservationRef.current = null;
+    accountLevelOutageRef.current = false;
+    setDisplaySecondsUsed(0);
+    setCurrentReservationAmount(null);
+
     if (sessionExpiryTimeoutRef.current) {
       clearTimeout(sessionExpiryTimeoutRef.current);
       sessionExpiryTimeoutRef.current = null;
@@ -646,7 +676,14 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
                 // Read via ref, not the closed-over `connectionState` value, to
                 // avoid acting on a stale snapshot from when this callback was
                 // created.
-                if (!intentionalDisconnectRef.current && connectionStateRef.current === "connected") {
+                // 3.4: skip scheduleReconnect if the SDK already flagged a
+                // provider-side outage (account-level credit exhaustion) —
+                // retrying into a dead Decart account just fails again.
+                if (
+                  !intentionalDisconnectRef.current &&
+                  !accountLevelOutageRef.current &&
+                  connectionStateRef.current === "connected"
+                ) {
                   scheduleReconnect(startSessionFn);
                 }
                 break;
@@ -662,6 +699,46 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
         });
 
         realtimeClientRef.current = realtimeClient;
+
+        // Authoritative usage signal. This is what actually drives billing on
+        // Decart's side — treat it as ground truth, not the wall-clock estimate.
+        // Registered after connect() resolves: the SDK buffers events emitted
+        // during connect and flushes them once connect() succeeds, so this still
+        // receives the first tick. (onConnectionChange is a connect()-time option
+        // and fires even during failing retries; .on() is the buffered path.)
+        realtimeClient.on("generationTick", ({ seconds }: { seconds: number }) => {
+          if (!isMountedRef.current) return;
+          lastKnownGenerationSecondsRef.current = seconds;
+          setDisplaySecondsUsed(seconds); // drives the HUD timer directly
+
+          // Proactive stop the instant the authoritative count reaches what was
+          // paid for — belt-and-suspenders with 3.1's server-side hard cap and
+          // the existing reservation-expiry setTimeout. Whichever fires first
+          // wins; all three are safe to have fire redundantly.
+          if (
+            currentReservationRef.current &&
+            seconds >= currentReservationRef.current
+          ) {
+            handleStop();
+          }
+        });
+
+        realtimeClient.on("error", (error: DecartSDKError) => {
+          console.error("[DiipMynd] Decart SDK error:", error.code, error.message);
+          // 3.4: a Decart-account-level credit exhaustion (our balance, not the
+          // user's) surfaces indistinguishably from a transient network drop —
+          // the exact case that SHOULD trigger scheduleReconnect. Retrying into
+          // an empty Decart account fails again, on a loop, for every affected
+          // user at once. Detect it and stop instead.
+          if (/credit/i.test(error.code ?? "") || /credit/i.test(error.message ?? "")) {
+            accountLevelOutageRef.current = true;
+            setError({
+              code: "UNKNOWN",
+              message: "The video service is temporarily unavailable. Please try again shortly.",
+            });
+            setConnectionState("error");
+          }
+        });
       } catch (err) {
         // The SDK has already exhausted its own internal retries by the time
         // this rejects — do NOT call scheduleReconnect here, that would stack a
@@ -674,7 +751,7 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
         throw err;
       }
     },
-    [scheduleReconnect, beginSessionRecording, handleConnectionConnected]
+    [scheduleReconnect, beginSessionRecording, handleConnectionConnected, handleStop]
   );
 
   // ── Fal.ai Manual WebRTC Connection Flow ──────────────────────────────
@@ -1151,7 +1228,16 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
 
       heartbeatIntervalRef.current = setInterval(async () => {
         try {
-          const res = await fetch("/api/stream/keepalive", { method: "POST" });
+          // 3.3: piggyback the authoritative generationTick seconds onto the
+          // existing keepalive (no new network call) so settlement paths can
+          // prefer the real number over a wall-clock guess.
+          const res = await fetch("/api/stream/keepalive", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              generationSeconds: lastKnownGenerationSecondsRef.current ?? undefined,
+            }),
+          });
           if (res.status !== 200) {
             handleStop();
             setError({
@@ -1162,6 +1248,12 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
             });
           } else {
             const data = await res.json();
+            // 3.2/3.3: learn the reserved amount so the generationTick handler
+            // can stop the instant the authoritative count reaches it.
+            if (typeof data.amountReserved === "number") {
+              currentReservationRef.current = data.amountReserved;
+              setCurrentReservationAmount(data.amountReserved);
+            }
             if (data.reservationExpiresAt && !user.isAdmin) {
               const timeToExpiry = new Date(data.reservationExpiresAt).getTime() - Date.now();
               const secondsLeft = Math.max(0, Math.floor(timeToExpiry / 1000));
@@ -1310,6 +1402,18 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
   const isLoading = ["requesting-token", "initializing-camera", "connecting", "reconnecting"].includes(connectionState);
   const showStartButton = (connectionState === "idle" || connectionState === "disconnected") && !isEnding;
 
+  // 3.2: the number the user watches is the number Decart is actually counting.
+  // Prefer the authoritative generationTick-driven remaining time over the
+  // wall-clock countdown, so the visible timer never drifts from real billing
+  // under network jitter. Falls back to the wall-clock countdown when no
+  // authoritative tick has arrived yet (e.g. the first second of a session).
+  // Uses state mirrors (not refs) so this is render-safe.
+  const authoritativeSecondsRemaining =
+    displaySecondsUsed > 0 && currentReservationAmount !== null
+      ? Math.max(0, currentReservationAmount - displaySecondsUsed)
+      : null;
+  const hudSecondsRemaining = authoritativeSecondsRemaining ?? countdownSeconds;
+
   useEffect(() => {
     if (hasLocalStream && localVideoRef.current && localStreamRef.current) {
       localVideoRef.current.srcObject = localStreamRef.current;
@@ -1388,10 +1492,10 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
             )}
             {activeProvider === "decart" ? "Decart" : "Fal.ai"}
           </div>
-          {countdownSeconds !== null && !user.isAdmin && (
+          {hudSecondsRemaining !== null && !user.isAdmin && (
             <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wider uppercase bg-white/[0.06] text-amber-400 border border-white/[0.1]">
               <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-              Time Remaining: {formatTime(countdownSeconds)}
+              Time Remaining: {formatTime(hudSecondsRemaining)}
             </div>
           )}
           {routingReason && (

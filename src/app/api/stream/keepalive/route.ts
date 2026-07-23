@@ -20,7 +20,7 @@ const STALE_AFTER_SECONDS = 90; // match billing worker constant
 const SWEEP_INTERVAL_MS = 30_000;
 const SWEEP_BATCH_LIMIT = 10; // small batch to keep database sweep fast
 
-export async function POST() {
+export async function POST(request: Request) {
   try {
     const currentUser = await getCurrentUser();
     if (!currentUser) {
@@ -38,11 +38,32 @@ export async function POST() {
       );
     }
 
+    // 3.3: piggyback the authoritative generationTick seconds onto the existing
+    // keepalive (no new network call). Optional and best-effort — a malformed
+    // or absent body must never fail the keepalive itself.
+    let generationSeconds: number | undefined;
+    try {
+      const body = await request.json();
+      if (typeof body?.generationSeconds === "number" && body.generationSeconds >= 0) {
+        generationSeconds = Math.floor(body.generationSeconds);
+      }
+    } catch {
+      // No body, or malformed — fine, this field is optional.
+    }
+
     // .maybeSingle() is safe if zero or one row matches; .single() would 500
     // if the user somehow has >1 active session.
     const { data, error } = await supabaseAdmin
       .from("stream_sessions")
-      .update({ last_keepalive_at: new Date().toISOString() })
+      .update({
+        last_keepalive_at: new Date().toISOString(),
+        // 3.3: persist Decart's authoritative cumulative seconds so settlement
+        // (which may run long after this tab closes) can prefer the real number
+        // over a wall-clock guess. Only written when the client reports one.
+        ...(generationSeconds !== undefined
+          ? { last_known_generation_seconds: generationSeconds }
+          : {}),
+      })
       .eq("user_id", currentUser.id)
       .eq("status", "active")
       .select("id, started_at, connected_at")
@@ -126,7 +147,7 @@ async function sweepStaleSessions() {
 
   const { data: staleSessions, error } = await supabaseAdmin
     .from("stream_sessions")
-    .select("id, user_id, started_at, connected_at, last_keepalive_at")
+    .select("id, user_id, started_at, connected_at, last_keepalive_at, last_known_generation_seconds")
     .eq("status", "active")
     .lt("last_keepalive_at", cutoff)
     .limit(SWEEP_BATCH_LIMIT);
@@ -151,7 +172,7 @@ async function sweepStaleSessions() {
 
       const startTime = session.connected_at ? new Date(session.connected_at) : new Date(session.started_at);
       const lastKeepalive = new Date(session.last_keepalive_at);
-      const elapsedSeconds = Math.max(0, Math.floor(
+      const wallClockSeconds = Math.max(0, Math.floor(
         (lastKeepalive.getTime() - startTime.getTime()) / 1000
       ));
 
@@ -179,8 +200,12 @@ async function sweepStaleSessions() {
         .eq("reference_id", session.id)
         .maybeSingle();
 
-      const amountReserved = reservation?.amount_reserved ?? elapsedSeconds;
-      const actualCost = Math.min(elapsedSeconds, amountReserved);
+      // 3.3: prefer Decart's authoritative cumulative seconds (persisted via
+      // keepalive) over the wall-clock estimate. The clamp stays as the final
+      // safety net regardless of which estimate is used.
+      const bestEstimate = session.last_known_generation_seconds ?? wallClockSeconds;
+      const amountReserved = reservation?.amount_reserved ?? bestEstimate;
+      const actualCost = Math.min(bestEstimate, amountReserved);
 
       // Non-admins: call the atomic RPC to settle session and reservation together!
       const { data: settleResult, error: settleErr } = await supabaseAdmin.rpc("settle_stream_session", {
@@ -194,7 +219,7 @@ async function sweepStaleSessions() {
       } else {
         console.log(
           `[keepalive-sweep] Atomic settled stale session ${session.id}. ` +
-          `Duration: ${elapsedSeconds}s. Result:`, settleResult
+          `Duration: ${bestEstimate}s (gen: ${session.last_known_generation_seconds ?? "n/a"}). Result:`, settleResult
         );
       }
     } catch (err) {

@@ -39,7 +39,7 @@ export async function POST(request: Request) {
     if (!currentUser.isAdmin) {
       const { data: oldSessions, error: activeFetchErr } = await supabaseAdmin
         .from("stream_sessions")
-        .select("id, started_at, connected_at")
+        .select("id, started_at, connected_at, last_known_generation_seconds")
         .eq("user_id", currentUser.id)
         .eq("status", "active");
 
@@ -65,7 +65,10 @@ export async function POST(request: Request) {
             .maybeSingle();
 
           const startTime = oldSess.connected_at ? new Date(oldSess.connected_at) : new Date(oldSess.started_at);
-          const elapsedSeconds = Math.max(0, Math.floor((Date.now() - startTime.getTime()) / 1000));
+          const wallClockSeconds = Math.max(0, Math.floor((Date.now() - startTime.getTime()) / 1000));
+          // 3.3: prefer Decart's authoritative cumulative seconds (persisted via
+          // keepalive) over the wall-clock estimate when available.
+          const elapsedSeconds = oldSess.last_known_generation_seconds ?? wallClockSeconds;
 
           const amountReserved = reservation?.amount_reserved ?? elapsedSeconds;
           const actualCost = Math.min(elapsedSeconds, amountReserved);
@@ -255,6 +258,20 @@ export async function POST(request: Request) {
       const token = await client.tokens.create({
         expiresIn: tokenTtl,
         allowedModels: ["lucy-2.5"],
+        // Native hard cap: Decart itself will not generate a single second past
+        // this duration, regardless of whether DiipMynd's client or backend runs
+        // correctly. Safe to pass here because (a) Decart's documented floor is
+        // 10s and the minimum-balance check above guarantees estimatedCost >= 30
+        // for any non-admin session reaching this line, and (b) admins are
+        // excluded entirely (estimatedCost is 0 for admins, below the floor).
+        // Safe across reconnects: Bug #3's scheduleReconnect re-runs the full
+        // startSession() flow, which settles the old session (refunding unused
+        // credits via Part 1's clamp) before recomputing estimatedCost from the
+        // genuinely-remaining balance — so a user cannot accrue more generation
+        // time than they paid for by forcing reconnects.
+        ...(currentUser.isAdmin ? {} : {
+          constraints: { realtime: { maxSessionDuration: estimatedCost } },
+        }),
       });
 
       const returnedKey = token?.apiKey;

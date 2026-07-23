@@ -37,7 +37,7 @@ export async function POST(request: Request) {
     let session: any = null;
     const { data: dbSession, error: fetchErr } = await supabaseAdmin
       .from("stream_sessions")
-      .select("id, started_at, connected_at, status, user_id")
+      .select("id, started_at, connected_at, status, user_id, last_known_generation_seconds")
       .eq("id", sessionId)
       .single();
 
@@ -83,7 +83,11 @@ export async function POST(request: Request) {
     // 2. Calculate actual cost based on elapsed seconds (relative to connected_at, falling back to started_at)
     const now = new Date();
     const startTime = session.connected_at ? new Date(session.connected_at) : new Date(session.started_at);
-    const elapsedSeconds = Math.max(0, Math.floor((now.getTime() - startTime.getTime()) / 1000));
+    const wallClockSeconds = Math.max(0, Math.floor((now.getTime() - startTime.getTime()) / 1000));
+    // 3.3: prefer Decart's authoritative cumulative seconds over the wall-clock
+    // estimate when available. The clamp (below) stays as the final safety net
+    // regardless of which estimate is used.
+    const elapsedSeconds = session.last_known_generation_seconds ?? wallClockSeconds;
 
     // 3. Settle session and reservation atomically via RPC
     if (currentUser.isAdmin) {
