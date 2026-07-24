@@ -1173,56 +1173,8 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
 
   // ── Stop session and connection handlers (Moved up to avoid block-scoping compile errors) ──
 
-  // ── Tab visibility / page unload handlers ─────────────────────────────
-  useEffect(() => {
-    let visibilityTimeout: ReturnType<typeof setTimeout> | null = null;
 
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "hidden") {
-        // Start 30s grace period to end session if user remains backgrounded
-        visibilityTimeout = setTimeout(() => {
-          if (activeSessionIdRef.current) {
-            console.log("[DiipMynd] Ending stream due to persistent background tab");
-            handleStop();
-            setError({
-              code: "INSUFFICIENT_CREDITS" as any,
-              message: "Stream stopped after being in the background for more than 30 seconds."
-            });
-          }
-        }, 30000);
-      } else {
-        // User came back, clear the grace period timeout
-        if (visibilityTimeout) {
-          clearTimeout(visibilityTimeout);
-          visibilityTimeout = null;
-        }
-      }
-    };
 
-    const handlePageHide = () => {
-      const sessionId = activeSessionIdRef.current;
-      if (sessionId) {
-        console.log("[DiipMynd] Tab hiding/unloading, sending best-effort beacon for session:", sessionId);
-        const blob = new Blob([JSON.stringify({ sessionId })], { type: "application/json" });
-        navigator.sendBeacon("/api/stream/end", blob);
-
-        // Clean up client-side connections and camera
-        disconnectRealtime();
-        stopLocalStream();
-      }
-    };
-
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    window.addEventListener("pagehide", handlePageHide);
-
-    return () => {
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-      window.removeEventListener("pagehide", handlePageHide);
-      if (visibilityTimeout) {
-        clearTimeout(visibilityTimeout);
-      }
-    };
-  }, [handleStop, disconnectRealtime, stopLocalStream]);
 
   // ── Credit Heartbeat ──────────────────────────────────────────────────
   useEffect(() => {
