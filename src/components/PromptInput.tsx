@@ -18,6 +18,19 @@ const PRESETS: PromptPreset[] = [
   { id: "pixar",      label: "Pixar Style",      prompt: "Render the user as a Pixar-style 3D character",           icon: "🍿" },
 ];
 
+// ── Background replacement presets ──────────────────────────────────────────
+// Uses the same handlePromptChange flow — no new SDK integration needed.
+// Decart Lucy 2.5 natively supports background replacement via prompt changes
+// on an active session (setPrompt / .set()), with no new connection or token.
+const BACKGROUND_PRESETS: PromptPreset[] = [
+  { id: "bg-beach",       label: "Beach",            prompt: "Change the background to a sandy beach with clear blue water and a bright sunny sky.",                       icon: "🏖️" },
+  { id: "bg-living-room", label: "Cozy Living Room", prompt: "Change the background to a cozy living room with warm lighting, bookshelves, and a fireplace.",              icon: "🏠" },
+  { id: "bg-neon-city",   label: "Neon City Night",  prompt: "Change the background to a neon-lit city street at night with reflections on wet pavement.",                 icon: "🌃" },
+  { id: "bg-space",       label: "Outer Space",      prompt: "Change the background to a view of outer space with stars, nebulae, and distant planets.",                   icon: "🚀" },
+  { id: "bg-forest",      label: "Enchanted Forest", prompt: "Change the background to a lush enchanted forest with glowing fireflies and soft golden light filtering through the canopy.", icon: "🌲" },
+  { id: "bg-office",      label: "Modern Office",    prompt: "Change the background to a sleek modern office with floor-to-ceiling windows overlooking a cityscape.",      icon: "🏢" },
+];
+
 interface PromptInputProps {
   /** Called with the new prompt text after debounce. */
   onPromptChange: (prompt: string) => void;
@@ -64,6 +77,31 @@ export default function PromptInput({ onPromptChange, disabled = false }: Prompt
     onPromptChange(preset.prompt);
   };
 
+  // Reusable chip renderer for both preset groups
+  const renderChips = (presets: PromptPreset[]) =>
+    presets.map((preset) => (
+      <button
+        key={preset.id}
+        onClick={() => handlePresetClick(preset)}
+        disabled={disabled}
+        className={`
+          inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg
+          text-xs font-medium tracking-wide
+          border transition-all duration-200
+          disabled:opacity-30 disabled:cursor-not-allowed
+          cursor-pointer
+          ${
+            activePreset === preset.id
+              ? "bg-indigo-50 dark:bg-indigo-950/40 border-indigo-300 dark:border-indigo-900/60 text-indigo-700 dark:text-indigo-400 shadow-sm"
+              : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 hover:border-slate-300 dark:hover:border-slate-700 hover:text-slate-800 dark:hover:text-slate-200"
+          }
+        `}
+      >
+        <span>{preset.icon}</span>
+        <span>{preset.label}</span>
+      </button>
+    ));
+
   return (
     <div className="w-full space-y-3">
       {/* ── Text Input ────────────────────────────────────────────────── */}
@@ -91,30 +129,19 @@ export default function PromptInput({ onPromptChange, disabled = false }: Prompt
         <div className="absolute bottom-0 left-4 right-4 h-px bg-gradient-to-r from-transparent via-indigo-600/30 to-transparent opacity-0 group-focus-within:opacity-100 transition-opacity duration-500" />
       </div>
 
-      {/* ── Preset Chips ──────────────────────────────────────────────── */}
+      {/* ── Style Preset Chips ─────────────────────────────────────────── */}
       <div className="flex flex-wrap gap-2">
-        {PRESETS.map((preset) => (
-          <button
-            key={preset.id}
-            onClick={() => handlePresetClick(preset)}
-            disabled={disabled}
-            className={`
-              inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg
-              text-xs font-medium tracking-wide
-              border transition-all duration-200
-              disabled:opacity-30 disabled:cursor-not-allowed
-              cursor-pointer
-              ${
-                activePreset === preset.id
-                  ? "bg-indigo-50 dark:bg-indigo-950/40 border-indigo-300 dark:border-indigo-900/60 text-indigo-700 dark:text-indigo-455 dark:text-indigo-400 shadow-sm"
-                  : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 hover:border-slate-300 dark:hover:border-slate-700 hover:text-slate-800 dark:hover:text-slate-205 dark:hover:text-slate-205 dark:hover:text-slate-200"
-              }
-            `}
-          >
-            <span>{preset.icon}</span>
-            <span>{preset.label}</span>
-          </button>
-        ))}
+        {renderChips(PRESETS)}
+      </div>
+
+      {/* ── Background Preset Chips ────────────────────────────────────── */}
+      <div className="space-y-1.5">
+        <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-600 pl-0.5">
+          Change Background
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {renderChips(BACKGROUND_PRESETS)}
+        </div>
       </div>
     </div>
   );

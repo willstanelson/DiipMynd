@@ -82,12 +82,19 @@ export async function POST(request: Request) {
 
     // 2. Calculate actual cost based on elapsed seconds (relative to connected_at, falling back to started_at)
     const now = new Date();
+
+    // ── Never-connected guard ─────────────────────────────────────────────
+    // If connected_at is null the WebRTC session never established. The user
+    // consumed zero generation time, so the actual cost is unconditionally 0
+    // and the full escrow hold must be refunded.
+    const neverConnected = !session.connected_at;
+
     const startTime = session.connected_at ? new Date(session.connected_at) : new Date(session.started_at);
-    const wallClockSeconds = Math.max(0, Math.floor((now.getTime() - startTime.getTime()) / 1000));
+    const wallClockSeconds = neverConnected ? 0 : Math.max(0, Math.floor((now.getTime() - startTime.getTime()) / 1000));
     // 3.3: prefer Decart's authoritative cumulative seconds over the wall-clock
     // estimate when available. The clamp (below) stays as the final safety net
     // regardless of which estimate is used.
-    const elapsedSeconds = session.last_known_generation_seconds ?? wallClockSeconds;
+    const elapsedSeconds = neverConnected ? 0 : (session.last_known_generation_seconds ?? wallClockSeconds);
 
     // 3. Settle session and reservation atomically via RPC
     if (currentUser.isAdmin) {
@@ -118,11 +125,12 @@ export async function POST(request: Request) {
       // session runs past its reservation window.
       const amountReserved = reservation?.amount_reserved ?? elapsedSeconds;
       const actualCost = Math.min(elapsedSeconds, amountReserved);
+      const outcome = neverConnected ? "failure" : "success";
 
       const { data: settleResult, error: settleErr } = await supabaseAdmin.rpc("settle_stream_session", {
         p_session_id: sessionId,
         p_actual_cost: actualCost,
-        p_outcome: "success"
+        p_outcome: outcome
       });
 
       if (settleErr) {
@@ -130,7 +138,7 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "Failed to settle reservation hold." }, { status: 500 });
       }
 
-      console.log(`[stream-end] Atomic settled session ${sessionId}. Elapsed: ${elapsedSeconds}s, billed: ${actualCost}s. Result:`, settleResult);
+      console.log(`[stream-end] Atomic settled session ${sessionId}. Elapsed: ${elapsedSeconds}s, billed: ${actualCost}s, neverConnected: ${neverConnected}. Result:`, settleResult);
     }
 
     return NextResponse.json({ success: true, message: "Session ended successfully." });

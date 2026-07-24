@@ -28,7 +28,7 @@ export async function POST() {
     // 1. Fetch a bounded batch of active sessions.
     const { data: sessions, error: fetchError } = await supabaseAdmin
       .from("stream_sessions")
-      .select("id, user_id, provider, started_at, last_billed_at, last_keepalive_at")
+      .select("id, user_id, provider, started_at, connected_at, last_billed_at, last_keepalive_at")
       .eq("status", "active")
       .order("last_billed_at", { ascending: true })
       .limit(200);
@@ -62,6 +62,10 @@ export async function POST() {
 
       const isAdmin = !!profile?.is_admin;
 
+      // Never-connected guard: if connected_at is null the WebRTC stream never
+      // established. The user consumed zero generation time.
+      const neverConnected = !session.connected_at;
+
       // Fetch active reservation hold (if not admin)
       let reservation: any = null;
       if (!isAdmin) {
@@ -80,9 +84,12 @@ export async function POST() {
         await supabaseAdmin.from("stream_sessions").update({ status: "ended" }).eq("id", session.id);
         
         if (reservation && reservation.status === "reserved") {
-          const elapsedSeconds = Math.max(0, Math.floor((lastKeepalive.getTime() - startedAt.getTime()) / 1000));
-          const actualCost = Math.min(reservation.amount_reserved, elapsedSeconds);
-          await settleReservationEscrow(reservation.id, actualCost, "success");
+          // Never-connected sessions get a full refund (cost = 0, outcome = failure).
+          const startTime = session.connected_at ? new Date(session.connected_at) : startedAt;
+          const elapsedSeconds = neverConnected ? 0 : Math.max(0, Math.floor((lastKeepalive.getTime() - startTime.getTime()) / 1000));
+          const actualCost = neverConnected ? 0 : Math.min(reservation.amount_reserved, elapsedSeconds);
+          const outcome = neverConnected ? "failure" : "success";
+          await settleReservationEscrow(reservation.id, actualCost, outcome);
         }
         ended++;
         continue;
@@ -106,9 +113,15 @@ export async function POST() {
 
         const expiresAt = new Date(reservation.expires_at);
         if (now.getTime() >= expiresAt.getTime()) {
-          // Hold expired -> terminate and commit full reservation
+          // Hold expired -> terminate and settle for ACTUAL elapsed time, not
+          // the full reservation amount. This prevents charging the full escrow
+          // when a session that barely ran outlives its reservation TTL.
+          const startTime = session.connected_at ? new Date(session.connected_at) : startedAt;
+          const elapsedSeconds = neverConnected ? 0 : Math.max(0, Math.floor((lastKeepalive.getTime() - startTime.getTime()) / 1000));
+          const actualCost = neverConnected ? 0 : Math.min(reservation.amount_reserved, elapsedSeconds);
+          const outcome = neverConnected ? "failure" : "success";
           await supabaseAdmin.from("stream_sessions").update({ status: "ended" }).eq("id", session.id);
-          await settleReservationEscrow(reservation.id, reservation.amount_reserved, "success");
+          await settleReservationEscrow(reservation.id, actualCost, outcome);
           ended++;
           continue;
         }

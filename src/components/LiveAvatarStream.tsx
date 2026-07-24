@@ -993,7 +993,10 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
         }, Math.max(0, timeToExpiry));
       }
 
+      const tCameraStart = performance.now();
       const stream = localStreamRef.current || (await initCamera(provider));
+      const tCameraDone = performance.now();
+      console.log(`[DiipMynd timing] camera: ${(tCameraDone - tCameraStart).toFixed(0)}ms`);
       if (!isMountedRef.current || intentionalDisconnectRef.current) return;
 
       if (realtimeClientRef.current) {
@@ -1011,11 +1014,13 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
 
       if (intentionalDisconnectRef.current) return;
 
+      const tConnectStart = performance.now();
       if (provider === "decart") {
         await connectToDecart(stream, startData.decartToken, startSession);
       } else {
         await connectToFal(stream, startSession);
       }
+      console.log(`[DiipMynd timing] ${provider} connect: ${(performance.now() - tConnectStart).toFixed(0)}ms`);
     } catch (err: unknown) {
       // If connectToDecart succeeded but something later in startSession threw
       // (or vice versa), the Decart client could be left connected. Disconnect
@@ -1263,7 +1268,7 @@ export default function LiveAvatarStream({ user, onLogout, onBalanceUpdated }: L
         } catch (err) {
           console.error("[keepalive] Failed to send ping:", err);
         }
-      }, 30000);
+      }, 5000);
     } else {
       if (heartbeatIntervalRef.current) {
         clearInterval(heartbeatIntervalRef.current);

@@ -100,7 +100,12 @@ export async function POST(request: Request) {
       }
     }
 
-    // Minimum balance check: at least 30 credits (equivalent to 30s stream time)
+    // Minimum balance check: at least 30 credits (equivalent to 30s stream time).
+    // Only admins are exempt from billing — test sessions (KYC-trial users) run
+    // through the full credit pipeline exactly like funded users so the whole
+    // billing path can be exercised and bugs caught before real money is at
+    // stake. The only difference between test and real is which Decart API key
+    // is used (see the provider block below).
     if (!currentUser.isAdmin && userCredits < 30) {
       return NextResponse.json({
         error: "Insufficient credits. Minimum 30 credits required to start streaming."

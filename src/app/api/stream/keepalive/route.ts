@@ -147,7 +147,7 @@ async function sweepStaleSessions() {
 
   const { data: staleSessions, error } = await supabaseAdmin
     .from("stream_sessions")
-    .select("id, user_id, started_at, connected_at, last_keepalive_at, last_known_generation_seconds")
+      .select("id, user_id, started_at, connected_at, last_keepalive_at, last_known_generation_seconds")
     .eq("status", "active")
     .lt("last_keepalive_at", cutoff)
     .limit(SWEEP_BATCH_LIMIT);
@@ -170,9 +170,12 @@ async function sweepStaleSessions() {
 
       const isAdmin = !!profile?.is_admin;
 
+      // Never-connected guard: if connected_at is null, cost is unconditionally 0.
+      const neverConnected = !session.connected_at;
+
       const startTime = session.connected_at ? new Date(session.connected_at) : new Date(session.started_at);
       const lastKeepalive = new Date(session.last_keepalive_at);
-      const wallClockSeconds = Math.max(0, Math.floor(
+      const wallClockSeconds = neverConnected ? 0 : Math.max(0, Math.floor(
         (lastKeepalive.getTime() - startTime.getTime()) / 1000
       ));
 
@@ -203,15 +206,16 @@ async function sweepStaleSessions() {
       // 3.3: prefer Decart's authoritative cumulative seconds (persisted via
       // keepalive) over the wall-clock estimate. The clamp stays as the final
       // safety net regardless of which estimate is used.
-      const bestEstimate = session.last_known_generation_seconds ?? wallClockSeconds;
+      const bestEstimate = neverConnected ? 0 : (session.last_known_generation_seconds ?? wallClockSeconds);
       const amountReserved = reservation?.amount_reserved ?? bestEstimate;
       const actualCost = Math.min(bestEstimate, amountReserved);
+      const outcome = neverConnected ? "failure" : "expired";
 
-      // Non-admins: call the atomic RPC to settle session and reservation together!
+      // Non-admin: call the atomic RPC to settle session and reservation together!
       const { data: settleResult, error: settleErr } = await supabaseAdmin.rpc("settle_stream_session", {
         p_session_id: session.id,
         p_actual_cost: actualCost,
-        p_outcome: "expired"
+        p_outcome: outcome
       });
 
       if (settleErr) {
@@ -219,7 +223,7 @@ async function sweepStaleSessions() {
       } else {
         console.log(
           `[keepalive-sweep] Atomic settled stale session ${session.id}. ` +
-          `Duration: ${bestEstimate}s (gen: ${session.last_known_generation_seconds ?? "n/a"}). Result:`, settleResult
+          `Duration: ${bestEstimate}s (gen: ${session.last_known_generation_seconds ?? "n/a"}, neverConnected: ${neverConnected}). Result:`, settleResult
         );
       }
     } catch (err) {
@@ -260,10 +264,12 @@ async function sweepExpiredReservations() {
     try {
       const sessionId = reservation.reference_id;
 
-      // 2. Look up stream_sessions row via reference_id
+      // 2. Look up stream_sessions row via reference_id — fetch timing data
+      //    to compute actual elapsed cost instead of blindly billing the full
+      //    reservation amount.
       const { data: session, error: sessErr } = await supabaseAdmin
         .from("stream_sessions")
-        .select("id, status")
+        .select("id, status, started_at, connected_at, last_keepalive_at, last_known_generation_seconds")
         .eq("id", sessionId)
         .maybeSingle();
 
@@ -278,9 +284,20 @@ async function sweepExpiredReservations() {
         continue;
       }
 
-      // 3. Call settleReservationEscrow and update stream_sessions.status = 'ended'
-      console.log(`[keepalive-expired-sweep] Settling expired reservation ${reservation.id} for session ${sessionId}...`);
-      await settleReservationEscrow(reservation.id, reservation.amount_reserved, "success");
+      // Never-connected guard: if connected_at is null, cost = 0.
+      const neverConnected = !session.connected_at;
+      const startTime = session.connected_at ? new Date(session.connected_at) : new Date(session.started_at);
+      const lastKeepalive = session.last_keepalive_at ? new Date(session.last_keepalive_at) : new Date();
+      const wallClockSeconds = neverConnected ? 0 : Math.max(0, Math.floor(
+        (lastKeepalive.getTime() - startTime.getTime()) / 1000
+      ));
+      const bestEstimate = neverConnected ? 0 : (session.last_known_generation_seconds ?? wallClockSeconds);
+      const actualCost = Math.min(bestEstimate, reservation.amount_reserved);
+      const outcome = neverConnected ? "failure" : "success";
+
+      // 3. Settle for actual elapsed time (not full reservation) and end session
+      console.log(`[keepalive-expired-sweep] Settling expired reservation ${reservation.id} for session ${sessionId} (cost: ${actualCost}, neverConnected: ${neverConnected})...`);
+      await settleReservationEscrow(reservation.id, actualCost, outcome);
 
       await supabaseAdmin
         .from("stream_sessions")
